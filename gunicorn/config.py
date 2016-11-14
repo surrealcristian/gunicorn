@@ -192,25 +192,6 @@ class Config(object):
 
         return True
 
-    @property
-    def paste_global_conf(self):
-        raw_global_conf = self.settings['raw_paste_global_conf'].get()
-        if raw_global_conf is None:
-            return None
-
-        global_conf = {}
-        for e in raw_global_conf:
-            s = _compat.bytes_to_str(e)
-            try:
-                k, v = re.split(r'(?<!\\)=', s, 1)
-            except ValueError:
-                raise RuntimeError("environment setting %r invalid" % s)
-            k = k.replace('\\=', '=')
-            v = v.replace('\\=', '=')
-            global_conf[k] = v
-
-        return global_conf
-
 
 class SettingMeta(type):
     def __new__(cls, name, bases, attrs):
@@ -819,9 +800,7 @@ class Reload(Setting):
         This setting is intended for development. It will cause workers to be
         restarted whenever application code changes.
 
-        The reloader is incompatible with application preloading. When using a
-        paste configuration be sure that the server block does not import any
-        application code or the reload will not work as designed.
+        The reloader is incompatible with application preloading.
 
         When using this option, you can optionally specify whether you would
         like to use file system polling or the kernel's inotify API to watch
@@ -1372,23 +1351,6 @@ class PythonPath(Setting):
         """
 
 
-class Paste(Setting):
-    name = "paste"
-    section = "Server Mechanics"
-    cli = ["--paste", "--paster"]
-    meta = "STRING"
-    validator = validate_string
-    default = None
-    desc = """\
-        Load a PasteDeploy config file. The argument may contain a ``#``
-        symbol followed by the name of an app section from the config file,
-        e.g. ``production.ini#admin``.
-
-        At this time, using alternate server blocks is not supported. Use the
-        command line arguments to control server configuration instead.
-        """
-
-
 class OnStarting(Setting):
     name = "on_starting"
     section = "Server Hooks"
@@ -1755,26 +1717,4 @@ if sys.version_info >= (2, 7):
         default = 'TLSv1'
         desc = """\
         Ciphers to use (see stdlib ssl module's)
-        """
-
-
-class PasteGlobalConf(Setting):
-    name = "raw_paste_global_conf"
-    action = "append"
-    section = "Server Mechanics"
-    cli = ["--paste-global"]
-    meta = "CONF"
-    validator = validate_list_string
-    default = []
-
-    desc = """\
-        Set a PasteDeploy global config variable (key=value).
-
-        The option can be specified multiple times.
-
-        The variables are passed to the the PasteDeploy entrypoint. Ex.::
-
-            $ gunicorn -b 127.0.0.1:8000 --paste development.ini --paste-global FOO=1 --paste-global BAR=2
-
-        .. versionadded:: 20.0
         """

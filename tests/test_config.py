@@ -20,8 +20,6 @@ def cfg_module():
     return 'config.test_cfg'
 def cfg_file():
     return os.path.join(dirname, "config", "test_cfg.py")
-def paster_ini():
-    return os.path.join(dirname, "..", "examples", "frameworks", "pylonstest", "nose.ini")
 
 class AltArgs(object):
     def __init__(self, args=None):
