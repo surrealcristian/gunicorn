@@ -813,20 +813,6 @@ class Reload(Setting):
         '''
 
 
-class Spew(Setting):
-    name = "spew"
-    section = "Debugging"
-    cli = ["--spew"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-        Install a trace function that spews every line executed by the server.
-
-        This is the nuclear option.
-        """
-
-
 class ConfigCheck(Setting):
     name = "check_config"
     section = "Debugging"

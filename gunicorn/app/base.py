@@ -10,7 +10,6 @@ from gunicorn._compat import execfile_
 from gunicorn import util
 from gunicorn.arbiter import Arbiter
 from gunicorn.config import Config, get_default_config_file
-from gunicorn import debug
 
 class BaseApplication(object):
     """
@@ -57,8 +56,6 @@ class BaseApplication(object):
 
     def reload(self):
         self.do_load_config()
-        if self.cfg.spew:
-            debug.spew()
 
     def wsgi(self):
         if self.callable is None:
@@ -172,9 +169,6 @@ class Application(BaseApplication):
                 sys.stderr.flush()
                 sys.exit(1)
             sys.exit(0)
-
-        if self.cfg.spew:
-            debug.spew()
 
         if self.cfg.daemon:
             util.daemonize(self.cfg.enable_stdio_inheritance)
