@@ -16,32 +16,6 @@ import traceback
 from gunicorn import util
 
 
-# syslog facility codes
-SYSLOG_FACILITIES = {
-        "auth":     4,
-        "authpriv": 10,
-        "cron":     9,
-        "daemon":   3,
-        "ftp":      11,
-        "kern":     0,
-        "lpr":      6,
-        "mail":     2,
-        "news":     7,
-        "security": 4,  #  DEPRECATED
-        "syslog":   5,
-        "user":     1,
-        "uucp":     8,
-        "local0":   16,
-        "local1":   17,
-        "local2":   18,
-        "local3":   19,
-        "local4":   20,
-        "local5":   21,
-        "local6":   22,
-        "local7":   23
-        }
-
-
 CONFIG_DEFAULTS = dict(
         version=1,
         disable_existing_loggers=False,
@@ -114,50 +88,6 @@ class SafeAtoms(dict):
             return '-'
 
 
-def parse_syslog_address(addr):
-
-    if addr.startswith("unix://"):
-        sock_type = socket.SOCK_STREAM
-
-        # are we using a different socket type?
-        parts = addr.split("#", 1)
-        if len(parts) == 2:
-            addr = parts[0]
-            if parts[1] == "dgram":
-                sock_type = socket.SOCK_DGRAM
-
-        return (sock_type, addr.split("unix://")[1])
-
-    if addr.startswith("udp://"):
-        addr = addr.split("udp://")[1]
-        socktype = socket.SOCK_DGRAM
-    elif addr.startswith("tcp://"):
-        addr = addr.split("tcp://")[1]
-        socktype = socket.SOCK_STREAM
-    else:
-        raise RuntimeError("invalid syslog address")
-
-    if '[' in addr and ']' in addr:
-        host = addr.split(']')[0][1:].lower()
-    elif ':' in addr:
-        host = addr.split(':')[0].lower()
-    elif addr == "":
-        host = "localhost"
-    else:
-        host = addr.lower()
-
-    addr = addr.split(']')[-1]
-    if ":" in addr:
-        port = addr.split(':', 1)[1]
-        if not port.isdigit():
-            raise RuntimeError("%r is not a valid port number." % port)
-        port = int(port)
-    else:
-        port = 514
-
-    return (socktype, (host, port))
-
-
 class Logger(object):
 
     LOG_LEVELS = {
@@ -173,7 +103,6 @@ class Logger(object):
     datefmt = r"[%Y-%m-%d %H:%M:%S %z]"
 
     access_fmt = "%(message)s"
-    syslog_fmt = "[%(process)d] %(message)s"
 
     atoms_wrapper_class = SafeAtoms
 
@@ -210,15 +139,6 @@ class Logger(object):
         if cfg.accesslog is not None:
             self._set_handler(self.access_log, cfg.accesslog,
                 fmt=logging.Formatter(self.access_fmt), stream=sys.stdout)
-
-        # set syslog handler
-        if cfg.syslog:
-            self._set_syslog_handler(
-                self.error_log, cfg, self.syslog_fmt, "error"
-            )
-            self._set_syslog_handler(
-                self.access_log, cfg, self.syslog_fmt, "access"
-            )
 
         if cfg.logconfig:
             if os.path.exists(cfg.logconfig):
@@ -311,7 +231,7 @@ class Logger(object):
         for format details
         """
 
-        if not (self.cfg.accesslog or self.cfg.logconfig or self.cfg.syslog):
+        if not (self.cfg.accesslog or self.cfg.logconfig):
             return
 
         # wrap atoms:
@@ -393,41 +313,6 @@ class Logger(object):
             h.setFormatter(fmt)
             h._gunicorn = True
             log.addHandler(h)
-
-    def _set_syslog_handler(self, log, cfg, fmt, name):
-        # setup format
-        if not cfg.syslog_prefix:
-            prefix = cfg.proc_name.replace(":", ".")
-        else:
-            prefix = cfg.syslog_prefix
-
-        prefix = "gunicorn.%s.%s" % (prefix, name)
-
-        # set format
-        fmt = logging.Formatter(r"%s: %s" % (prefix, fmt))
-
-        # syslog facility
-        try:
-            facility = SYSLOG_FACILITIES[cfg.syslog_facility.lower()]
-        except KeyError:
-            raise RuntimeError("unknown facility name")
-
-        # parse syslog address
-        socktype, addr = parse_syslog_address(cfg.syslog_addr)
-
-        # finally setup the syslog handler
-        if sys.version_info >= (2, 7):
-            h = logging.handlers.SysLogHandler(address=addr,
-                    facility=facility, socktype=socktype)
-        else:
-            # socktype is only supported in 2.7 and sup
-            # fix issue #541
-            h = logging.handlers.SysLogHandler(address=addr,
-                    facility=facility)
-
-        h.setFormatter(fmt)
-        h._gunicorn = True
-        log.addHandler(h)
 
     def _get_user(self, environ):
         user = None
