@@ -416,14 +416,8 @@ class Logger(object):
         socktype, addr = parse_syslog_address(cfg.syslog_addr)
 
         # finally setup the syslog handler
-        if sys.version_info >= (2, 7):
-            h = logging.handlers.SysLogHandler(address=addr,
-                    facility=facility, socktype=socktype)
-        else:
-            # socktype is only supported in 2.7 and sup
-            # fix issue #541
-            h = logging.handlers.SysLogHandler(address=addr,
-                    facility=facility)
+        h = logging.handlers.SysLogHandler(address=addr,
+                facility=facility, socktype=socktype)
 
         h.setFormatter(fmt)
         h._gunicorn = True

@@ -69,8 +69,6 @@ def test_do_handshake_on_connect():
     assert DoHandshakeOnConnect.default is False
 
 
-@pytest.mark.skipif(sys.version_info < (2, 7),
-                    reason="requires Python 2.7+")
 def test_ciphers():
     from gunicorn.config import Ciphers
 
