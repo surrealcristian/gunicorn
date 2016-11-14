@@ -7,21 +7,13 @@ import os
 import re
 import sys
 
+from os import sendfile
 from gunicorn._compat import unquote_to_wsgi_str
 from gunicorn.http.message import HEADER_RE
 from gunicorn.http.errors import InvalidHeader, InvalidHeaderName
 from gunicorn.util import reraise
 from gunicorn import SERVER_SOFTWARE
 import gunicorn.util as util
-
-try:
-    # Python 3.3 has os.sendfile().
-    from os import sendfile
-except ImportError:
-    try:
-        from ._sendfile import sendfile
-    except ImportError:
-        sendfile = None
 
 # Send files in at most 1GB blocks as some operating systems can have problems
 # with sending files in blocks over 2GB.
