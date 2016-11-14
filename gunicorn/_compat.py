@@ -150,11 +150,6 @@ def wrap_error(func, *args, **kw):
     try:
         return func(*args, **kw)
     except (socket.error, IOError, OSError) as exc:
-        if hasattr(exc, 'winerror'):
-            _wrap_error(exc, _MAP_ERRNO, exc.winerror)
-            # _MAP_ERRNO does not contain all Windows errors.
-            # For some errors like "file not found", exc.errno should
-            # be used (ex: ENOENT).
         _wrap_error(exc, _MAP_ERRNO, exc.errno)
         raise
     except select.error as exc:
