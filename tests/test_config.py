@@ -14,7 +14,6 @@ from gunicorn import config
 from gunicorn.app.base import Application
 from gunicorn.workers.sync import SyncWorker
 from gunicorn import glogging
-from gunicorn.instrument import statsd
 
 dirname = os.path.dirname(__file__)
 def cfg_module():
@@ -266,13 +265,6 @@ def test_nworkers_changed():
     assert c.nworkers_changed(1, 2, 3) == 3
 
 
-def test_statsd_changes_logger():
-    c = config.Config()
-    assert c.logger_class == glogging.Logger
-    c.set('statsd_host', 'localhost:12345')
-    assert c.logger_class == statsd.Statsd
-
-
 class MyLogger(glogging.Logger):
     # dummy custom logger class for testing
     pass
@@ -281,7 +273,4 @@ class MyLogger(glogging.Logger):
 def test_always_use_configured_logger():
     c = config.Config()
     c.set('logger_class', __name__ + '.MyLogger')
-    assert c.logger_class == MyLogger
-    c.set('statsd_host', 'localhost:12345')
-    # still uses custom logger over statsd
     assert c.logger_class == MyLogger

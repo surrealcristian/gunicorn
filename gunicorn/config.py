@@ -141,12 +141,6 @@ class Config(object):
             # support the default
             uri = LoggerClass.default
 
-        # if default logger is in use, and statsd is on, automagically switch
-        # to the statsd logger
-        if uri == LoggerClass.default:
-            if 'statsd_host' in self.settings and self.settings['statsd_host'].value is not None:
-                uri = "gunicorn.instrument.statsd.Statsd"
-
         logger_class = util.load_class(
             uri,
             default="gunicorn.glogging.Logger",
@@ -1331,35 +1325,6 @@ class EnableStdioInheritance(Setting):
 
     Note: To disable the Python stdout buffering, you can to set the user
     environment variable ``PYTHONUNBUFFERED`` .
-    """
-
-
-# statsD monitoring
-class StatsdHost(Setting):
-    name = "statsd_host"
-    section = "Logging"
-    cli = ["--statsd-host"]
-    meta = "STATSD_ADDR"
-    default = None
-    validator = validate_hostport
-    desc = """\
-    ``host:port`` of the statsd server to log to.
-
-    .. versionadded:: 19.1
-    """
-
-class StatsdPrefix(Setting):
-    name = "statsd_prefix"
-    section = "Logging"
-    cli = ["--statsd-prefix"]
-    meta = "STATSD_PREFIX"
-    default = ""
-    validator = validate_string
-    desc = """\
-    Prefix to use when emitting statsd metrics (a trailing ``.`` is added,
-    if not provided).
-
-    .. versionadded:: 19.2
     """
 
 
