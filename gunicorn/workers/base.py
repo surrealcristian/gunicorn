@@ -12,7 +12,6 @@ import traceback
 
 from gunicorn import util
 from gunicorn.workers.workertmp import WorkerTmp
-from gunicorn.reloader import preferred_reloader, Reloader, InotifyReloader
 from gunicorn.http.errors import (
     InvalidHeader, InvalidHeaderName, InvalidRequestLine, InvalidRequestMethod,
     InvalidHTTPVersion, LimitRequestLine, LimitRequestHeaders,
@@ -42,7 +41,6 @@ class Worker(object):
         self.cfg = cfg
         self.booted = False
         self.aborted = False
-        self.reloader = None
 
         self.nr = 0
         jitter = randint(0, cfg.max_requests_jitter)
@@ -111,25 +109,6 @@ class Worker(object):
 
         self.load_wsgi()
 
-        # start the reloader
-        if self.cfg.reload and self.cfg.reload != 'off':
-            def changed(fname):
-                self.log.info("Worker reloading: %s modified", fname)
-                self.alive = False
-                self.cfg.worker_int(self)
-                time.sleep(0.1)
-                sys.exit(0)
-
-            if self.cfg.reload == 'poll':
-                reloader_cls = Reloader
-            elif self.cfg.reload == 'inotify':
-                reloader_cls = InotifyReloader
-            else:
-                reloader_cls = preferred_reloader
-
-            self.reloader = reloader_cls(callback=changed)
-            self.reloader.start()
-
         self.cfg.post_worker_init(self)
 
         # Enter main run loop
@@ -151,7 +130,6 @@ class Worker(object):
             # delete the traceback after use.
             try:
                 exc_type, exc_val, exc_tb = sys.exc_info()
-                self.reloader.add_extra_file(exc_val.filename)
 
                 tb_string = traceback.format_tb(exc_tb)
                 self.wsgi = util.make_fail_app(tb_string)
