@@ -586,7 +586,6 @@ class WorkerClass(Setting):
         A string referring to one of the following bundled classes:
 
         * ``sync``
-        * ``eventlet`` - Requires eventlet >= 0.9.7
         * ``gevent``   - Requires gevent >= 0.13
         * ``tornado``  - Requires tornado >= 0.2
         * ``gthread``  - Python 2 requires the futures package to be installed
@@ -616,21 +615,6 @@ class WorkerThreads(Setting):
         application's work load.
 
         If it is not defined, the default is 1.
-        """
-
-
-class WorkerConnections(Setting):
-    name = "worker_connections"
-    section = "Worker Processes"
-    cli = ["--worker-connections"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 1000
-    desc = """\
-        The maximum number of simultaneous clients.
-
-        This setting only affects the Eventlet and Gevent worker types.
         """
 
 
