@@ -46,8 +46,6 @@ with open(fname) as f:
 
 if sys.version_info[:2] < (3, 3):
     tests_require.append('mock')
-if sys.version_info[:2] < (2, 7):
-    tests_require.append('unittest2')
 
 class PyTestCommand(TestCommand):
     user_options = [
