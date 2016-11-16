@@ -3,13 +3,10 @@
 
 import sys
 
-if sys.version_info >= (3, 3):
-    try:
-        import aiohttp  # NOQA
-    except ImportError:
-        raise RuntimeError("You need aiohttp installed to use this worker.")
-    else:
-        from gunicorn.workers._gaiohttp import AiohttpWorker
-        __all__ = ['AiohttpWorker']
+try:
+    import aiohttp  # NOQA
+except ImportError:
+    raise RuntimeError("You need aiohttp installed to use this worker.")
 else:
-    raise RuntimeError("You need Python >= 3.3 to use the asyncio worker")
+    from gunicorn.workers._gaiohttp import AiohttpWorker
+    __all__ = ['AiohttpWorker']
