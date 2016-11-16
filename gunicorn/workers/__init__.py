@@ -13,7 +13,3 @@ SUPPORTED_WORKERS = {
     "tornado": "gunicorn.workers.gtornado.TornadoWorker",
     "gthread": "gunicorn.workers.gthread.ThreadWorker",
 }
-
-
-# gaiohttp worker can be used with Python 3.3+ only.
-SUPPORTED_WORKERS["gaiohttp"] = "gunicorn.workers.gaiohttp.AiohttpWorker"
