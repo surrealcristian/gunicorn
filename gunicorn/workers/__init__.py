@@ -6,5 +6,4 @@ import sys
 # supported gunicorn workers.
 SUPPORTED_WORKERS = {
     "sync": "gunicorn.workers.sync.SyncWorker",
-    "gthread": "gunicorn.workers.gthread.ThreadWorker",
 }
