@@ -6,8 +6,5 @@ import sys
 # supported gunicorn workers.
 SUPPORTED_WORKERS = {
     "sync": "gunicorn.workers.sync.SyncWorker",
-    "gevent": "gunicorn.workers.ggevent.GeventWorker",
-    "gevent_wsgi": "gunicorn.workers.ggevent.GeventPyWSGIWorker",
-    "gevent_pywsgi": "gunicorn.workers.ggevent.GeventPyWSGIWorker",
     "gthread": "gunicorn.workers.gthread.ThreadWorker",
 }

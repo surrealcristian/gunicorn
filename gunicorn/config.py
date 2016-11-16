@@ -586,15 +586,10 @@ class WorkerClass(Setting):
         A string referring to one of the following bundled classes:
 
         * ``sync``
-        * ``gevent``   - Requires gevent >= 0.13
-        * ``tornado``  - Requires tornado >= 0.2
         * ``gthread``  - Python 2 requires the futures package to be installed
 
         Optionally, you can provide your own worker by giving Gunicorn a
         Python path to a subclass of ``gunicorn.workers.base.Worker``.
-        This alternative syntax will load the gevent class:
-        ``gunicorn.workers.ggevent.GeventWorker``. Alternatively, the syntax
-        can also load the gevent class with ``egg:gunicorn#gevent``.
         """
 
 class WorkerThreads(Setting):
