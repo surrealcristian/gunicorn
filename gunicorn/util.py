@@ -5,7 +5,6 @@ from __future__ import print_function
 
 import email.utils
 import fcntl
-import grp
 import io
 import os
 import pkg_resources
@@ -13,7 +12,6 @@ import pwd
 import random
 import resource
 import socket
-import stat
 import sys
 import textwrap
 import time
@@ -86,7 +84,9 @@ relative import to an absolute import.
 """
         if name.startswith('.'):
             if not package:
-                raise TypeError("relative imports require the 'package' argument")
+                raise TypeError(
+                    "relative imports require the 'package' argument"
+                )
             level = 0
             for character in name:
                 if character != '.':
@@ -98,7 +98,7 @@ relative import to an absolute import.
 
 
 def load_class(uri, default="gunicorn.workers.sync.SyncWorker",
-        section="gunicorn.workers"):
+               section="gunicorn.workers"):
     if inspect.isclass(uri):
         return uri
     if uri.startswith("egg:"):
@@ -129,7 +129,7 @@ def load_class(uri, default="gunicorn.workers.sync.SyncWorker",
 
                 try:
                     return pkg_resources.load_entry_point("gunicorn",
-                                section, uri)
+                                                          section, uri)
                 except:
                     exc = traceback.format_exc()
                     msg = "class uri %r invalid or not found: \n\n[%s]"
@@ -258,7 +258,7 @@ def parse_address(netloc, default_port=8000):
     else:
         host = netloc.lower()
 
-    #get port
+    # get port
     netloc = netloc.split(']')[-1]
     if ":" in netloc:
         port = netloc.split(':', 1)[1]
@@ -293,6 +293,7 @@ def close(sock):
         sock.close()
     except socket.error:
         pass
+
 
 try:
     from os import closerange
@@ -531,6 +532,7 @@ def to_bytestring(value, encoding="utf8"):
 
     return value.encode(encoding)
 
+
 def has_fileno(obj):
     if not hasattr(obj, "fileno"):
         return False
@@ -579,6 +581,7 @@ def reraise(tp, value, tb=None):
     if value.__traceback__ is not tb:
         raise value.with_traceback(tb)
     raise value
+
 
 reraise.__doc__ = """Reraise an exception."""
 

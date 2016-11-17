@@ -9,7 +9,6 @@ import grp
 import inspect
 import os
 import pwd
-import re
 import ssl
 import sys
 import textwrap
@@ -40,7 +39,7 @@ def make_settings(ignore=None):
     return settings
 
 
-class Config(object):
+class Config:
 
     def __init__(self, usage=None, prog=None):
         self.settings = make_settings()
@@ -69,10 +68,12 @@ class Config(object):
             "prog": self.prog
         }
         parser = argparse.ArgumentParser(**kwargs)
-        parser.add_argument("-v", "--version",
-                action="version", default=argparse.SUPPRESS,
-                version="%(prog)s (version " + __version__ + ")\n",
-                help="show program's version number and exit")
+        parser.add_argument(
+            "-v", "--version",
+            action="version", default=argparse.SUPPRESS,
+            version="%(prog)s (version " + __version__ + ")\n",
+            help="show program's version number and exit"
+        )
         parser.add_argument("args", nargs="*", help=argparse.SUPPRESS)
 
         keys = sorted(self.settings, key=self.settings.__getitem__)
@@ -84,16 +85,11 @@ class Config(object):
     @property
     def worker_class_str(self):
         uri = self.settings['worker_class'].get()
-
-        is_sync = uri.endswith('SyncWorker') or uri == 'sync'
         return uri
 
     @property
     def worker_class(self):
         uri = self.settings['worker_class'].get()
-
-        is_sync = uri.endswith('SyncWorker') or uri == 'sync'
-
         worker_class = util.load_class(uri)
         if hasattr(worker_class, "setup"):
             worker_class.setup()
@@ -204,7 +200,7 @@ class SettingMeta(type):
         setattr(cls, "short", desc.splitlines()[0])
 
 
-class Setting(object):
+class Setting:
     name = None
     value = None
     section = None
@@ -268,6 +264,7 @@ class Setting(object):
         return (self.section == other.section and
                 self.order < other.order)
     __cmp__ = __lt__
+
 
 Setting = SettingMeta('Setting', (Setting,), {})
 
@@ -355,8 +352,9 @@ def validate_callable(arity):
             except ImportError as e:
                 raise TypeError(str(e))
             except AttributeError:
-                raise TypeError("Can not load '%s' from '%s'"
-                    "" % (obj_name, mod_name))
+                raise TypeError(
+                    "Can not load '%s' from '%s'" % (obj_name, mod_name)
+                )
         if not callable(val):
             raise TypeError("Value is not callable: %s" % val)
         if arity != -1 and arity != len(inspect.getargspec(val)[0]):
@@ -438,6 +436,7 @@ def validate_file(val):
 
     return path
 
+
 def validate_hostport(val):
     val = validate_string(val)
     if val is None:
@@ -450,8 +449,9 @@ def validate_hostport(val):
 
 
 def get_default_config_file():
-    config_path = os.path.join(os.path.abspath(os.getcwd()),
-            'gunicorn.conf.py')
+    config_path = os.path.join(
+        os.path.abspath(os.getcwd()), 'gunicorn.conf.py'
+    )
     if os.path.exists(config_path):
         return config_path
     return None
@@ -467,7 +467,8 @@ class ConfigFile(Setting):
     desc = """\
         The Gunicorn config file.
 
-        A string of the form ``PATH``, ``file:PATH``, or ``python:MODULE_NAME``.
+        A string of the form ``PATH``, ``file:PATH``, or
+        ``python:MODULE_NAME``.
 
         Only has an effect when specified on the command line or as part of an
         application specific configuration.
@@ -476,6 +477,7 @@ class ConfigFile(Setting):
            Loading the config from a Python module requires the ``python:``
            prefix.
         """
+
 
 class Bind(Setting):
     name = "bind"
@@ -616,12 +618,14 @@ class Timeout(Setting):
     type = int
     default = 30
     desc = """\
-        Workers silent for more than this many seconds are killed and restarted.
+        Workers silent for more than this many seconds are killed and
+        restarted.
 
         Generally set to thirty seconds. Only set this noticeably higher if
         you're sure of the repercussions for sync workers. For the non sync
-        workers it just means that the worker process is still communicating and
-        is not tied to the length of time required to handle a single request.
+        workers it just means that the worker process is still communicating
+        and is not tied to the length of time required to handle a single
+        request.
         """
 
 
@@ -796,6 +800,7 @@ class Daemon(Setting):
         background.
         """
 
+
 class Env(Setting):
     name = "raw_env"
     action = "append"
@@ -828,6 +833,7 @@ class Pidfile(Setting):
 
         If not set, no PID file will be written.
         """
+
 
 class WorkerTmpDir(Setting):
     name = "worker_tmp_dir"
@@ -923,9 +929,9 @@ class TmpUploadDir(Setting):
 
         This may disappear in the near future.
 
-        This path should be writable by the process permissions set for Gunicorn
-        workers. If not specified, Gunicorn will choose a system generated
-        temporary directory.
+        This path should be writable by the process permissions set for
+        Gunicorn workers. If not specified, Gunicorn will choose a system
+        generated temporary directory.
         """
 
 
@@ -1141,9 +1147,9 @@ class Procname(Setting):
         A base to use with setproctitle for process naming.
 
         This affects things like ``ps`` and ``top``. If you're going to be
-        running more than one instance of Gunicorn you'll probably want to set a
-        name to tell them apart. This requires that you install the setproctitle
-        module.
+        running more than one instance of Gunicorn you'll probably want to set
+        a name to tell them apart. This requires that you install the
+        setproctitle module.
 
         If not set, the *default_proc_name* setting will be used.
         """
@@ -1186,7 +1192,8 @@ class OnStarting(Setting):
     desc = """\
         Called just before the master process is initialized.
 
-        The callable needs to accept a single instance variable for the Arbiter.
+        The callable needs to accept a single instance variable for the
+        Arbiter.
         """
 
 
@@ -1202,7 +1209,8 @@ class OnReload(Setting):
     desc = """\
         Called to recycle workers during a reload via SIGHUP.
 
-        The callable needs to accept a single instance variable for the Arbiter.
+        The callable needs to accept a single instance variable for the
+        Arbiter.
         """
 
 
@@ -1218,7 +1226,8 @@ class WhenReady(Setting):
     desc = """\
         Called just after the server is started.
 
-        The callable needs to accept a single instance variable for the Arbiter.
+        The callable needs to accept a single instance variable for the
+        Arbiter.
         """
 
 
@@ -1273,6 +1282,7 @@ class PostWorkerInit(Setting):
         Worker.
         """
 
+
 class WorkerInt(Setting):
     name = "worker_int"
     section = "Server Hooks"
@@ -1323,7 +1333,8 @@ class PreExec(Setting):
     desc = """\
         Called just before a new master process is forked.
 
-        The callable needs to accept a single instance variable for the Arbiter.
+        The callable needs to accept a single instance variable for the
+        Arbiter.
         """
 
 
@@ -1397,6 +1408,7 @@ class NumWorkersChanged(Setting):
         be ``None``.
         """
 
+
 class OnExit(Setting):
     name = "on_exit"
     section = "Server Hooks"
@@ -1409,7 +1421,8 @@ class OnExit(Setting):
     desc = """\
         Called just before exiting Gunicorn.
 
-        The callable needs to accept a single instance variable for the Arbiter.
+        The callable needs to accept a single instance variable for the
+        Arbiter.
         """
 
 
@@ -1426,7 +1439,8 @@ class ProxyProtocol(Setting):
         Allow using HTTP and Proxy together. It may be useful for work with
         stunnel as HTTPS frontend and Gunicorn as HTTP server.
 
-        PROXY protocol: http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
+        PROXY protocol:
+        http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
 
         Example for stunnel config::
 
@@ -1446,7 +1460,8 @@ class ProxyAllowFrom(Setting):
     validator = validate_string_to_list
     default = "127.0.0.1"
     desc = """\
-        Front-end's IPs from which allowed accept proxy requests (comma separate).
+        Front-end's IPs from which allowed accept proxy requests (comma
+        separate).
 
         Set to ``*`` to disable checking of Front-end IPs (useful for setups
         where you don't know in advance the IP address of Front-end, but
@@ -1477,6 +1492,7 @@ class CertFile(Setting):
     SSL certificate file
     """
 
+
 class SSLVersion(Setting):
     name = "ssl_version"
     section = "SSL"
@@ -1487,6 +1503,7 @@ class SSLVersion(Setting):
     SSL version to use (see stdlib ssl module's)
     """
 
+
 class CertReqs(Setting):
     name = "cert_reqs"
     section = "SSL"
@@ -1496,6 +1513,7 @@ class CertReqs(Setting):
     desc = """\
     Whether client certificate is required (see stdlib ssl module's)
     """
+
 
 class CACerts(Setting):
     name = "ca_certs"
@@ -1508,6 +1526,7 @@ class CACerts(Setting):
     CA certificates file
     """
 
+
 class SuppressRaggedEOFs(Setting):
     name = "suppress_ragged_eofs"
     section = "SSL"
@@ -1519,6 +1538,7 @@ class SuppressRaggedEOFs(Setting):
     Suppress ragged EOFs (see stdlib ssl module's)
     """
 
+
 class DoHandshakeOnConnect(Setting):
     name = "do_handshake_on_connect"
     section = "SSL"
@@ -1527,7 +1547,8 @@ class DoHandshakeOnConnect(Setting):
     action = "store_true"
     default = False
     desc = """\
-    Whether to perform SSL handshake on socket connect (see stdlib ssl module's)
+    Whether to perform SSL handshake on socket connect (see stdlib ssl
+    module's)
     """
 
 

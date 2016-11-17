@@ -25,7 +25,7 @@ HEADER_VALUE_RE = re.compile(r'[\x00-\x1F\x7F]')
 log = logging.getLogger(__name__)
 
 
-class FileWrapper(object):
+class FileWrapper:
 
     def __init__(self, filelike, blksize=8192):
         self.filelike = filelike
@@ -118,8 +118,10 @@ def create(req, sock, client, server, cfg):
     # set secure_headers
     secure_headers = cfg.secure_scheme_headers
     if client and not isinstance(client, str):
-        if ('*' not in cfg.forwarded_allow_ips
-                and client[0] not in cfg.forwarded_allow_ips):
+        if (
+            '*' not in cfg.forwarded_allow_ips and
+            client[0] not in cfg.forwarded_allow_ips
+        ):
             secure_headers = {}
 
     # add the headers to the environ
@@ -128,8 +130,10 @@ def create(req, sock, client, server, cfg):
             # handle expect
             if hdr_value.lower() == "100-continue":
                 sock.send(b"HTTP/1.1 100 Continue\r\n\r\n")
-        elif secure_headers and (hdr_name in secure_headers and
-              hdr_value == secure_headers[hdr_name]):
+        elif secure_headers and (
+            hdr_name in secure_headers and
+            hdr_value == secure_headers[hdr_name]
+        ):
             url_scheme = "https"
         elif hdr_name == 'HOST':
             host = hdr_value
@@ -199,7 +203,7 @@ def create(req, sock, client, server, cfg):
     return resp, environ
 
 
-class Response(object):
+class Response:
 
     def __init__(self, req, sock, cfg):
         self.req = req
@@ -308,8 +312,8 @@ class Response(object):
             connection = "keep-alive"
 
         headers = [
-            "HTTP/%s.%s %s\r\n" % (self.req.version[0],
-                self.req.version[1], self.status),
+            "HTTP/%s.%s %s\r\n" % (self.req.version[0], self.req.version[1],
+                                   self.status),
             "Server: %s\r\n" % self.version,
             "Date: %s\r\n" % util.http_date(),
             "Connection: %s\r\n" % connection

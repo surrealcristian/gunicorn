@@ -78,7 +78,9 @@ class LimitRequestLine(ParseException):
         self.max_size = max_size
 
     def __str__(self):
-        return "Request Line is too large (%s > %s)" % (self.size, self.max_size)
+        return "Request Line is too large (%s > %s)" % (
+            self.size, self.max_size
+        )
 
 
 class LimitRequestHeaders(ParseException):

@@ -6,7 +6,7 @@ import os
 import tempfile
 
 
-class Pidfile(object):
+class Pidfile:
     """\
     Manage a PID file. If a specific name is provided
     it and '"%s.oldpid" % name' will be used. Otherwise
@@ -30,7 +30,9 @@ class Pidfile(object):
         # Write pidfile
         fdir = os.path.dirname(self.fname)
         if fdir and not os.path.isdir(fdir):
-            raise RuntimeError("%s doesn't exist. Can't create pidfile." % fdir)
+            raise RuntimeError(
+                "%s doesn't exist. Can't create pidfile." % fdir
+            )
         fd, fname = tempfile.mkstemp(dir=fdir)
         os.write(fd, ("%s\n" % self.pid).encode('utf-8'))
         if self.fname:

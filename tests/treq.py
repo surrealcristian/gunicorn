@@ -4,19 +4,19 @@
 # under the MIT license.
 
 import t
-
 import inspect
 import os
 import random
 
 from urllib.parse import urlparse
-
 from gunicorn._compat import execfile_
 from gunicorn.config import Config
 from gunicorn.http.parser import RequestParser
 
+
 dirname = os.path.dirname(__file__)
 random.seed()
+
 
 def uri(data):
     ret = {"raw": data}
@@ -37,12 +37,14 @@ def uri(data):
     ret["fragment"] = parts.fragment or ''
     return ret
 
+
 def load_py(fname):
     config = globals().copy()
     config["uri"] = uri
     config["cfg"] = Config()
     execfile_(fname, config)
     return config
+
 
 class request(object):
     def __init__(self, fname, expect):
@@ -265,6 +267,7 @@ class request(object):
         assert req.headers == exp["headers"]
         matcher(req, exp["body"], sizer)
         assert req.trailers == exp.get("trailers", [])
+
 
 class badrequest(object):
     def __init__(self, fname):

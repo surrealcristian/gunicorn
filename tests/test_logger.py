@@ -2,7 +2,6 @@ import datetime
 
 from gunicorn.config import Config
 from gunicorn.glogging import Logger
-
 from support import SimpleNamespace
 
 
@@ -18,7 +17,8 @@ def test_atoms_defaults():
         'SERVER_PROTOCOL': 'HTTP/1.1',
     }
     logger = Logger(Config())
-    atoms = logger.atoms(response, request, environ, datetime.timedelta(seconds=1))
+    atoms = logger.atoms(response, request, environ,
+                         datetime.timedelta(seconds=1))
     assert isinstance(atoms, dict)
     assert atoms['r'] == 'GET /my/path?foo=bar HTTP/1.1'
     assert atoms['m'] == 'GET'
@@ -44,5 +44,6 @@ def test_get_username_from_basic_auth_header():
         'HTTP_AUTHORIZATION': 'Basic YnJrMHY6',
     }
     logger = Logger(Config())
-    atoms = logger.atoms(response, request, environ, datetime.timedelta(seconds=1))
+    atoms = logger.atoms(response, request, environ,
+                         datetime.timedelta(seconds=1))
     assert atoms['u'] == 'brk0v'

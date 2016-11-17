@@ -19,7 +19,7 @@ from gunicorn import util
 from gunicorn import __version__, SERVER_SOFTWARE
 
 
-class Arbiter(object):
+class Arbiter:
     """
     Arbiter maintain the workers processes alive. It launches or
     kills them if needed. It also manages application reloading
@@ -573,8 +573,9 @@ class Arbiter(object):
                 worker.tmp.close()
                 self.cfg.worker_exit(self, worker)
             except:
-                self.log.warning("Exception during worker exit:\n%s",
-                                  traceback.format_exc())
+                self.log.warning(
+                    "Exception during worker exit:\n%s", traceback.format_exc()
+                )
 
     def spawn_workers(self):
         """\

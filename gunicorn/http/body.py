@@ -4,10 +4,10 @@
 import io
 import sys
 from gunicorn.http.errors import (NoMoreData, ChunkMissingTerminator,
-        InvalidChunkSize)
+                                  InvalidChunkSize)
 
 
-class ChunkedReader(object):
+class ChunkedReader:
     def __init__(self, req, unreader):
         self.req = req
         self.parser = self.parse_chunked(unreader)
@@ -103,7 +103,7 @@ class ChunkedReader(object):
         buf.write(data)
 
 
-class LengthReader(object):
+class LengthReader:
     def __init__(self, unreader, length):
         self.unreader = unreader
         self.length = length
@@ -133,7 +133,7 @@ class LengthReader(object):
         return ret
 
 
-class EOFReader(object):
+class EOFReader:
     def __init__(self, unreader):
         self.unreader = unreader
         self.buf = io.BytesIO()
@@ -171,7 +171,7 @@ class EOFReader(object):
         return ret
 
 
-class Body(object):
+class Body:
     def __init__(self, reader):
         self.reader = reader
         self.buf = io.BytesIO()

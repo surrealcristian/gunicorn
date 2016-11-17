@@ -4,7 +4,6 @@
 import os
 import sys
 
-from gunicorn.errors import ConfigError
 from gunicorn.app.base import Application
 from gunicorn import util
 

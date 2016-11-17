@@ -11,13 +11,15 @@ PLATFORM = platform.system()
 IS_CYGWIN = PLATFORM.startswith('CYGWIN')
 
 
-class WorkerTmp(object):
+class WorkerTmp:
 
     def __init__(self, cfg):
         old_umask = os.umask(cfg.umask)
         fdir = cfg.worker_tmp_dir
         if fdir and not os.path.isdir(fdir):
-            raise RuntimeError("%s doesn't exist. Can't create workertmp." % fdir)
+            raise RuntimeError(
+                "%s doesn't exist. Can't create workertmp." % fdir
+            )
         fd, name = tempfile.mkstemp(prefix="wgunicorn-", dir=fdir)
 
         # allows the process to write to the file

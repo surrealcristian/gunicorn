@@ -11,7 +11,8 @@ from gunicorn import util
 from gunicorn.arbiter import Arbiter
 from gunicorn.config import Config, get_default_config_file
 
-class BaseApplication(object):
+
+class BaseApplication:
     """
     An application interface for configuring and loading
     the various necessities for any given web framework.
@@ -48,7 +49,8 @@ class BaseApplication(object):
 
     def load_config(self):
         """
-        This method is used to load the configuration from one or several input(s).
+        This method is used to load the configuration from one or several
+        input(s).
         Custom Command line, configuration file.
         You have to override this method in your class.
         """
@@ -69,6 +71,7 @@ class BaseApplication(object):
             print("\nError: %s\n" % e, file=sys.stderr)
             sys.stderr.flush()
             sys.exit(1)
+
 
 class Application(BaseApplication):
 
@@ -99,8 +102,10 @@ class Application(BaseApplication):
 
     def load_config_from_module_name_or_filename(self, location):
         """
-        Loads the configuration file: the file is a python file, otherwise raise an RuntimeError
-        Exception or stop the process if the configuration file contains a syntax error.
+        Loads the configuration file: the file is a python file, otherwise
+        raise an RuntimeError
+        Exception or stop the process if the configuration file contains a
+        syntax error.
         """
 
         if location.startswith("python:"):

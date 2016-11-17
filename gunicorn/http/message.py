@@ -11,9 +11,11 @@ from errno import ENOTCONN
 from gunicorn._compat import bytes_to_str
 from gunicorn.http.unreader import SocketUnreader
 from gunicorn.http.body import ChunkedReader, LengthReader, EOFReader, Body
-from gunicorn.http.errors import (InvalidHeader, InvalidHeaderName, NoMoreData,
-    InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
-    LimitRequestLine, LimitRequestHeaders)
+from gunicorn.http.errors import (
+    InvalidHeader, InvalidHeaderName, NoMoreData, InvalidRequestLine,
+    InvalidRequestMethod, InvalidHTTPVersion, LimitRequestLine,
+    LimitRequestHeaders
+)
 from gunicorn.http.errors import InvalidProxyLine, ForbiddenProxyRequest
 
 MAX_REQUEST_LINE = 8190
@@ -25,7 +27,7 @@ METH_RE = re.compile(r"[A-Z0-9$-_.]{3,20}")
 VERSION_RE = re.compile(r"HTTP/(\d+)\.(\d+)")
 
 
-class Message(object):
+class Message:
     def __init__(self, cfg, unreader):
         self.cfg = cfg
         self.unreader = unreader
@@ -36,15 +38,17 @@ class Message(object):
 
         # set headers limits
         self.limit_request_fields = cfg.limit_request_fields
-        if (self.limit_request_fields <= 0
-            or self.limit_request_fields > MAX_HEADERS):
+        if (
+            self.limit_request_fields <= 0 or
+            self.limit_request_fields > MAX_HEADERS
+        ):
             self.limit_request_fields = MAX_HEADERS
         self.limit_request_field_size = cfg.limit_request_field_size
         if self.limit_request_field_size < 0:
             self.limit_request_field_size = DEFAULT_MAX_HEADERFIELD_SIZE
 
         # set max header buffer size
-        max_header_field_size = self.limit_request_field_size or DEFAULT_MAX_HEADERFIELD_SIZE
+        max_header_field_size = self.limit_request_field_size or DEFAULT_MAX_HEADERFIELD_SIZE  # noqa
         self.max_buffer_headers = self.limit_request_fields * \
             (max_header_field_size + 2) + 4
 
@@ -84,8 +88,8 @@ class Message(object):
                 curr = lines.pop(0)
                 header_length += len(curr)
                 if header_length > self.limit_request_field_size > 0:
-                    raise LimitRequestHeaders("limit request headers "
-                            + "fields size")
+                    raise LimitRequestHeaders("limit request headers " +
+                                              "fields size")
                 value.append(curr)
             value = ''.join(value).rstrip()
 
@@ -142,8 +146,10 @@ class Request(Message):
 
         # get max request line size
         self.limit_request_line = cfg.limit_request_line
-        if (self.limit_request_line < 0
-            or self.limit_request_line >= MAX_REQUEST_LINE):
+        if (
+            self.limit_request_line < 0 or
+            self.limit_request_line >= MAX_REQUEST_LINE
+        ):
             self.limit_request_line = MAX_REQUEST_LINE
 
         self.req_number = req_number

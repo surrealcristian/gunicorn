@@ -55,7 +55,7 @@ def test_readline_no_new_line():
 def test_readline_buffer_loaded():
     reader = io.BytesIO(b"abc\ndef")
     body = Body(reader)
-    body.read(1) # load internal buffer
+    body.read(1)  # load internal buffer
     reader.write(b"g\nhi")
     reader.seek(7)
     assert body.readline() == b"bc\n"
@@ -92,7 +92,7 @@ def test_http_header_encoding():
     header_str = "%s\r\n" % "".join(tosend)
 
     with pytest.raises(UnicodeEncodeError):
-        mocked_socket.sendall(util.to_bytestring(header_str,"ascii"))
+        mocked_socket.sendall(util.to_bytestring(header_str, "ascii"))
 
 
 def test_http_invalid_response_header():

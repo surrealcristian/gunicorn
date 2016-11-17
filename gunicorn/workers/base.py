@@ -1,14 +1,15 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-from datetime import datetime
 import os
-from random import randint
 import signal
-from ssl import SSLError
 import sys
 import time
 import traceback
+
+from datetime import datetime
+from random import randint
+from ssl import SSLError
 
 from gunicorn import util
 from gunicorn.workers.workertmp import WorkerTmp
@@ -20,10 +21,12 @@ from gunicorn.http.errors import InvalidProxyLine, ForbiddenProxyRequest
 from gunicorn.http.wsgi import default_environ, Response
 
 
-class Worker(object):
+class Worker:
 
-    SIGNALS = [getattr(signal, "SIG%s" % x)
-            for x in "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()]
+    SIGNALS = [
+        getattr(signal, "SIG%s" % x)
+        for x in "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()
+    ]
 
     PIPE = []
 
@@ -44,7 +47,7 @@ class Worker(object):
 
         self.nr = 0
         jitter = randint(0, cfg.max_requests_jitter)
-        self.max_requests = cfg.max_requests + jitter or syx.maxsize
+        self.max_requests = cfg.max_requests + jitter or sys.maxsize
         self.alive = True
         self.log = log
         self.tmp = WorkerTmp(cfg)
@@ -124,10 +127,11 @@ class Worker(object):
 
             self.log.exception(e)
 
-            # fix from PR #1228
-            # storing the traceback into exc_tb will create a circular reference.
-            # per https://docs.python.org/2/library/sys.html#sys.exc_info warning,
-            # delete the traceback after use.
+            # Fix from PR #1228:
+            # Storing the traceback into exc_tb will create a circular
+            # reference.
+            # Per https://docs.python.org/2/library/sys.html#sys.exc_info
+            # warning, delete the traceback after use.
             try:
                 exc_type, exc_val, exc_tb = sys.exc_info()
 
@@ -176,12 +180,14 @@ class Worker(object):
     def handle_error(self, req, client, addr, exc):
         request_start = datetime.now()
         addr = addr or ('', -1)  # unix socket case
-        if isinstance(exc, (InvalidRequestLine, InvalidRequestMethod,
-                InvalidHTTPVersion, InvalidHeader, InvalidHeaderName,
-                LimitRequestLine, LimitRequestHeaders,
-                InvalidProxyLine, ForbiddenProxyRequest,
-                SSLError)):
-
+        if isinstance(
+            exc, (
+                InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
+                InvalidHeader, InvalidHeaderName, LimitRequestLine,
+                LimitRequestHeaders, InvalidProxyLine, ForbiddenProxyRequest,
+                SSLError
+            )
+        ):
             status_int = 400
             reason = "Bad Request"
 

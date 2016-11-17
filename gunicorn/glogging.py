@@ -5,14 +5,12 @@ import base64
 import binascii
 import time
 import logging
-logging.Logger.manager.emittedNoHandlerWarning = 1
-from logging.config import fileConfig
 import os
-import socket
 import sys
 import threading
 import traceback
 
+from logging.config import fileConfig
 from gunicorn import util
 
 
@@ -50,7 +48,7 @@ CONFIG_DEFAULTS = dict(
         },
         formatters={
             "generic": {
-                "format": "%(asctime)s [%(process)d] [%(levelname)s] %(message)s",
+                "format": "%(asctime)s [%(process)d] [%(levelname)s] %(message)s",  # noqa
                 "datefmt": "[%Y-%m-%d %H:%M:%S %z]",
                 "class": "logging.Formatter"
             }
@@ -88,7 +86,7 @@ class SafeAtoms(dict):
             return '-'
 
 
-class Logger(object):
+class Logger:
 
     LOG_LEVELS = {
         "critical": logging.CRITICAL,
@@ -137,8 +135,10 @@ class Logger(object):
 
         # set gunicorn.access handler
         if cfg.accesslog is not None:
-            self._set_handler(self.access_log, cfg.accesslog,
-                fmt=logging.Formatter(self.access_fmt), stream=sys.stdout)
+            self._set_handler(
+                self.access_log, cfg.accesslog,
+                fmt=logging.Formatter(self.access_fmt), stream=sys.stdout
+            )
 
         if cfg.logconfig:
             if os.path.exists(cfg.logconfig):
@@ -185,8 +185,10 @@ class Logger(object):
             'l': '-',
             'u': self._get_user(environ) or '-',
             't': self.now(),
-            'r': "%s %s %s" % (environ['REQUEST_METHOD'],
-                environ['RAW_URI'], environ["SERVER_PROTOCOL"]),
+            'r': "%s %s %s" % (
+                environ['REQUEST_METHOD'], environ['RAW_URI'],
+                environ["SERVER_PROTOCOL"]
+            ),
             's': status,
             'm': environ.get('REQUEST_METHOD'),
             'U': environ.get('PATH_INFO'),
@@ -222,7 +224,9 @@ class Logger(object):
 
         # add environ variables
         environ_variables = environ.items()
-        atoms.update(dict([("{%s}e" % k.lower(), v) for k, v in environ_variables]))
+        atoms.update(
+            dict([("{%s}e" % k.lower(), v) for k, v in environ_variables])
+        )
 
         return atoms
 
@@ -237,8 +241,9 @@ class Logger(object):
         # wrap atoms:
         # - make sure atoms will be test case insensitively
         # - if atom doesn't exist replace it by '-'
-        safe_atoms = self.atoms_wrapper_class(self.atoms(resp, req, environ,
-            request_time))
+        safe_atoms = self.atoms_wrapper_class(
+            self.atoms(resp, req, environ, request_time)
+        )
 
         try:
             self.access_log.info(self.cfg.access_log_format % safe_atoms)
@@ -261,7 +266,6 @@ class Logger(object):
                 os.dup2(self.logfile.fileno(), sys.stdout.fileno())
                 os.dup2(self.logfile.fileno(), sys.stderr.fileno())
 
-
         for log in loggers():
             for handler in log.handlers:
                 if isinstance(handler, logging.FileHandler):
@@ -270,7 +274,7 @@ class Logger(object):
                         if handler.stream:
                             handler.stream.close()
                             handler.stream = open(handler.baseFilename,
-                                    handler.mode)
+                                                  handler.mode)
                     finally:
                         handler.release()
 

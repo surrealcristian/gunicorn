@@ -44,8 +44,10 @@ def _get_codeobj(pyfile):
     # This is a .pyc file. Treat accordingly.
     if result is PY_COMPILED:
         # .pyc format is as follows:
-        # 0 - 4 bytes: Magic number, which changes with each create of .pyc file.
-        #              First 2 bytes change with each marshal of .pyc file. Last 2 bytes is "\r\n".
+        # 0 - 4 bytes: Magic number, which changes with each create of .pyc
+        #              file.
+        #              First 2 bytes change with each marshal of .pyc file.
+        #              Last 2 bytes is "\r\n".
         # 4 - 8 bytes: Datetime value, when the .py was last changed.
         # 8 - EOF: Marshalled code object data.
         # So to get code object, just read the 8th byte onwards till EOF, and
@@ -72,6 +74,7 @@ def execfile_(fname, *args):
         code = compile(open(fname, 'rb').read(), fname, 'exec')
     return exec(code, *args)
 
+
 def bytes_to_str(b):
     if isinstance(b, str):
         return b
@@ -90,38 +93,52 @@ def _wrap_error(exc, mapping, key):
     new_err = new_err_cls(*exc.args)
 
     # raise a new exception with the original traceback
-    reraise(new_err_cls, new_err,
-            exc.__traceback__ if hasattr(exc, '__traceback__') else sys.exc_info()[2])
+    reraise(
+        new_err_cls, new_err,
+        exc.__traceback__ if hasattr(exc, '__traceback__')
+        else sys.exc_info()[2]
+    )
+
 
 class BlockingIOError(OSError):
     pass
 
+
 class BrokenPipeError(OSError):
     pass
+
 
 class ChildProcessError(OSError):
     pass
 
+
 class ConnectionRefusedError(OSError):
     pass
+
 
 class InterruptedError(OSError):
     pass
 
+
 class ConnectionResetError(OSError):
     pass
+
 
 class ConnectionAbortedError(OSError):
     pass
 
+
 class PermissionError(OSError):
     pass
+
 
 class FileNotFoundError(OSError):
     pass
 
+
 class ProcessLookupError(OSError):
     pass
+
 
 _MAP_ERRNO = {
     errno.EACCES: PermissionError,
