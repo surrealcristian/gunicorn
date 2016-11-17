@@ -33,6 +33,7 @@ def requires_mac_ver(*min_version):
         return wrapper
     return decorator
 
+
 try:
     from types import SimpleNamespace
 except ImportError:
