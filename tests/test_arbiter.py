@@ -10,11 +10,11 @@ try:
 except ImportError:
     import mock
 
-import gunicorn.app.base
+from gunicorn.wsgiapp import BaseApplication
 import gunicorn.arbiter
 
 
-class DummyApplication(gunicorn.app.base.BaseApplication):
+class DummyApplication(BaseApplication):
     """
     Dummy application that has an default configuration.
     """

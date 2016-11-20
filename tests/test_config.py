@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from gunicorn import config
-from gunicorn.app.base import Application
+from gunicorn.wsgiapp import Application
 from gunicorn.workers.sync import SyncWorker
 from gunicorn import glogging
 
