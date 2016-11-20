@@ -40,14 +40,57 @@ class Arbiter:
     WORKERS = {}
     PIPE = []
 
-    # I love dynamic languages
     SIG_QUEUE = []
-    SIGNALS = [getattr(signal, "SIG%s" % x)
-               for x in "HUP QUIT INT TERM TTIN TTOU USR1 USR2 WINCH".split()]
-    SIG_NAMES = dict(
-        (getattr(signal, name), name[3:].lower()) for name in dir(signal)
-        if name[:3] == "SIG" and name[3] != "_"
-    )
+
+    SIGNALS = [
+        signal.SIGHUP,
+        signal.SIGQUIT,
+        signal.SIGINT,
+        signal.SIGTERM,
+        signal.SIGTTIN,
+        signal.SIGTTOU,
+        signal.SIGUSR1,
+        signal.SIGUSR2,
+        signal.SIGWINCH,
+    ]
+
+    SIG_NAMES = {
+        signal.SIGABRT: 'abrt',
+        signal.SIGALRM: 'alrm',
+        signal.SIGBUS: 'bus',
+        signal.SIGCHLD: 'chld',
+        signal.SIGCLD: 'cld',
+        signal.SIGCONT: 'cont',
+        signal.SIGFPE: 'fpe',
+        signal.SIGHUP: 'hup',
+        signal.SIGILL: 'ill',
+        signal.SIGINT: 'int',
+        signal.SIGIO: 'io',
+        signal.SIGIOT: 'iot',
+        signal.SIGKILL: 'kill',
+        signal.SIGPIPE: 'pipe',
+        signal.SIGPOLL: 'poll',
+        signal.SIGPROF: 'prof',
+        signal.SIGPWR: 'pwr',
+        signal.SIGQUIT: 'quit',
+        signal.SIGRTMAX: 'rtmax',
+        signal.SIGRTMIN: 'rtmin',
+        signal.SIGSEGV: 'segv',
+        signal.SIGSTOP: 'stop',
+        signal.SIGSYS: 'sys',
+        signal.SIGTERM: 'term',
+        signal.SIGTRAP: 'trap',
+        signal.SIGTSTP: 'tstp',
+        signal.SIGTTIN: 'ttin',
+        signal.SIGTTOU: 'ttou',
+        signal.SIGURG: 'urg',
+        signal.SIGUSR1: 'usr1',
+        signal.SIGUSR2: 'usr2',
+        signal.SIGVTALRM: 'vtalrm',
+        signal.SIGWINCH: 'winch',
+        signal.SIGXCPU: 'xcpu',
+        signal.SIGXFSZ: 'xfsz',
+    }
 
     def __init__(self, app):
         os.environ["SERVER_SOFTWARE"] = SERVER_SOFTWARE
@@ -225,7 +268,7 @@ class Arbiter:
             sys.exit(-1)
 
     def handle_chld(self, sig, frame):
-        "SIGCHLD handling"
+        """SIGCHLD handling"""
         self.reap_workers()
         self.wakeup()
 
@@ -240,16 +283,16 @@ class Arbiter:
         self.reload()
 
     def handle_term(self):
-        "SIGTERM handling"
+        """SIGTERM handling"""
         raise StopIteration
 
     def handle_int(self):
-        "SIGINT handling"
+        """SIGINT handling"""
         self.stop(False)
         raise StopIteration
 
     def handle_quit(self):
-        "SIGQUIT handling"
+        """SIGQUIT handling"""
         self.stop(False)
         raise StopIteration
 
