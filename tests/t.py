@@ -8,8 +8,8 @@ import io
 import os
 import tempfile
 
-from gunicorn.http.parser import RequestParser
-from gunicorn.config import Config
+from gunicorn import RequestParser
+from gunicorn import Config
 
 dirname = os.path.dirname(__file__)
 

@@ -1,2 +1,2 @@
-from gunicorn.http.errors import InvalidRequestLine
+from gunicorn import InvalidRequestLine
 request = InvalidRequestLine

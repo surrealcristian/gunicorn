@@ -1,3 +1,3 @@
-from gunicorn.http.errors import InvalidHeader
+from gunicorn import InvalidHeader
 
 request = InvalidHeader

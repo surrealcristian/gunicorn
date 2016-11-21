@@ -7,10 +7,10 @@ import os
 import sys
 import pytest
 
-from gunicorn import config
-from gunicorn.wsgiapp import Application
-from gunicorn.workers.sync import SyncWorker
-from gunicorn import glogging
+from gunicorn import Config, KNOWN_SETTINGS, validate_callable, get_default_config_file
+from gunicorn import Application
+from gunicorn import SyncWorker
+from gunicorn import Logger
 
 
 dirname = os.path.dirname(__file__)
@@ -48,21 +48,21 @@ class NoConfigApp(Application):
 
 
 def test_defaults():
-    c = config.Config()
-    for s in config.KNOWN_SETTINGS:
+    c = Config()
+    for s in KNOWN_SETTINGS:
         assert c.settings[s.name].validator(s.default) == c.settings[s.name].get()  # noqa
 
 
 def test_property_access():
-    c = config.Config()
-    for s in config.KNOWN_SETTINGS:
+    c = Config()
+    for s in KNOWN_SETTINGS:
         getattr(c, s.name)
 
     # Class was loaded
     assert c.worker_class == SyncWorker
 
     # logger class was loaded
-    assert c.logger_class == glogging.Logger
+    assert c.logger_class == Logger
 
     # Workers defaults to 1
     assert c.workers == 1
@@ -98,7 +98,7 @@ def test_property_access():
 
 
 def test_bool_validation():
-    c = config.Config()
+    c = Config()
     assert c.preload_app is False
     c.set("preload_app", True)
     assert c.preload_app is True
@@ -111,7 +111,7 @@ def test_bool_validation():
 
 
 def test_pos_int_validation():
-    c = config.Config()
+    c = Config()
     assert c.workers == 1
     c.set("workers", 4)
     assert c.workers == 4
@@ -126,7 +126,7 @@ def test_pos_int_validation():
 
 
 def test_str_validation():
-    c = config.Config()
+    c = Config()
     assert c.proc_name == "gunicorn"
     c.set("proc_name", " foo ")
     assert c.proc_name == "foo"
@@ -134,7 +134,7 @@ def test_str_validation():
 
 
 def test_str_to_list_validation():
-    c = config.Config()
+    c = Config()
     assert c.forwarded_allow_ips == ["127.0.0.1"]
     c.set("forwarded_allow_ips", "127.0.0.1,192.168.0.1")
     assert c.forwarded_allow_ips == ["127.0.0.1", "192.168.0.1"]
@@ -146,7 +146,7 @@ def test_str_to_list_validation():
 
 
 def test_callable_validation():
-    c = config.Config()
+    c = Config()
 
     def func(a, b):
         pass
@@ -159,20 +159,20 @@ def test_callable_validation():
 
 def test_callable_validation_for_string():
     from os.path import isdir as testfunc
-    assert config.validate_callable(-1)("os.path.isdir") == testfunc
+    assert validate_callable(-1)("os.path.isdir") == testfunc
 
     # invalid values tests
     pytest.raises(
         TypeError,
-        config.validate_callable(-1), ""
+        validate_callable(-1), ""
     )
     pytest.raises(
         TypeError,
-        config.validate_callable(-1), "os.path.not_found_func"
+        validate_callable(-1), "os.path.not_found_func"
     )
     pytest.raises(
         TypeError,
-        config.validate_callable(-1), "notfoundmodule.func"
+        validate_callable(-1), "notfoundmodule.func"
     )
 
 
@@ -191,7 +191,7 @@ def test_cmd_line():
 def test_app_config():
     with AltArgs():
         app = NoConfigApp()
-    for s in config.KNOWN_SETTINGS:
+    for s in KNOWN_SETTINGS:
         assert app.cfg.settings[s.name].validator(s.default) == app.cfg.settings[s.name].get()  # noqa
 
 
@@ -250,7 +250,7 @@ def create_config_file(request):
 
 
 def test_default_config_file(create_config_file):
-    assert config.get_default_config_file() == create_config_file.name
+    assert get_default_config_file() == create_config_file.name
 
     with AltArgs(["prog_name"]):
         app = NoConfigApp()
@@ -258,7 +258,7 @@ def test_default_config_file(create_config_file):
 
 
 def test_post_request():
-    c = config.Config()
+    c = Config()
 
     def post_request_4(worker, req, environ, resp):
         return 4
@@ -280,7 +280,7 @@ def test_post_request():
 
 
 def test_nworkers_changed():
-    c = config.Config()
+    c = Config()
 
     def nworkers_changed_3(server, new_value, old_value):
         return 3
@@ -289,12 +289,12 @@ def test_nworkers_changed():
     assert c.nworkers_changed(1, 2, 3) == 3
 
 
-class MyLogger(glogging.Logger):
+class MyLogger(Logger):
     # dummy custom logger class for testing
     pass
 
 
 def test_always_use_configured_logger():
-    c = config.Config()
+    c = Config()
     c.set('logger_class', __name__ + '.MyLogger')
     assert c.logger_class == MyLogger

@@ -1,5 +1,5 @@
-from gunicorn.config import Config
-from gunicorn.http.errors import InvalidProxyLine
+from gunicorn import Config
+from gunicorn import InvalidProxyLine
 
 cfg = Config()
 cfg.set("proxy_protocol", True)

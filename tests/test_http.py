@@ -4,11 +4,11 @@ import io
 import t
 import pytest
 
-from gunicorn import util
-from gunicorn.http.body import Body, LengthReader, EOFReader
-from gunicorn.http.wsgi import Response
-from gunicorn.http.unreader import Unreader, IterUnreader, SocketUnreader
-from gunicorn.http.errors import InvalidHeader, InvalidHeaderName
+from gunicorn import to_bytestring
+from gunicorn import Body, LengthReader, EOFReader
+from gunicorn import Response
+from gunicorn import Unreader, IterUnreader, SocketUnreader
+from gunicorn import InvalidHeader, InvalidHeaderName
 
 try:
     import unittest.mock as mock
@@ -92,7 +92,7 @@ def test_http_header_encoding():
     header_str = "%s\r\n" % "".join(tosend)
 
     with pytest.raises(UnicodeEncodeError):
-        mocked_socket.sendall(util.to_bytestring(header_str, "ascii"))
+        mocked_socket.sendall(to_bytestring(header_str, "ascii"))
 
 
 def test_http_invalid_response_header():

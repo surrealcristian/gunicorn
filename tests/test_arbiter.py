@@ -10,8 +10,8 @@ try:
 except ImportError:
     import mock
 
-from gunicorn.wsgiapp import BaseApplication
-import gunicorn.arbiter
+from gunicorn import BaseApplication
+from gunicorn import Arbiter
 
 
 class DummyApplication(BaseApplication):
@@ -30,7 +30,7 @@ class DummyApplication(BaseApplication):
 
 
 def test_arbiter_shutdown_closes_listeners():
-    arbiter = gunicorn.arbiter.Arbiter(DummyApplication())
+    arbiter = Arbiter(DummyApplication())
     listener1 = mock.Mock()
     listener2 = mock.Mock()
     arbiter.LISTENERS = [listener1, listener2]
@@ -76,4 +76,4 @@ def test_env_vars_available_during_preload():
     """
     # Note that we aren't making any assertions here, they are made in the
     # dummy application object being loaded here instead.
-    gunicorn.arbiter.Arbiter(PreloadedAppWithEnvSettings())
+    Arbiter(PreloadedAppWithEnvSettings())

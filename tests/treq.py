@@ -8,9 +8,9 @@ import os
 import random
 
 from urllib.parse import urlparse
-from gunicorn._compat import execfile_
-from gunicorn.config import Config
-from gunicorn.http.parser import RequestParser
+from gunicorn import execfile_
+from gunicorn import Config
+from gunicorn import RequestParser
 
 
 dirname = os.path.dirname(__file__)

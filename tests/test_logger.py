@@ -1,7 +1,7 @@
 import datetime
 
-from gunicorn.config import Config
-from gunicorn.glogging import Logger
+from gunicorn import Config
+from gunicorn import Logger
 from support import SimpleNamespace
 
 

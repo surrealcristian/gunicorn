@@ -1,2 +1,2 @@
-from gunicorn.http.errors import LimitRequestHeaders
+from gunicorn import LimitRequestHeaders
 request = LimitRequestHeaders

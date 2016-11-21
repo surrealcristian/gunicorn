@@ -1,3 +1,3 @@
-from gunicorn.http.errors import InvalidHTTPVersion
+from gunicorn import InvalidHTTPVersion
 
 request = InvalidHTTPVersion

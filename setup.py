@@ -86,6 +86,6 @@ setup(
 
     entry_points="""
     [console_scripts]
-    gunicorn=gunicorn.app.wsgiapp:run
+    gunicorn=gunicorn:run
     """
 )
