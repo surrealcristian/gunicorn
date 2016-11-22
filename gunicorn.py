@@ -654,9 +654,9 @@ def with_metaclass(meta, *bases):
     return type.__new__(metaclass, 'temporary_class', (), {})
 
 
-###########################################################################3###
+###############################################################################
 # _compat.py
-###########################################################################3###
+###############################################################################
 
 def _check_if_pyc(fname):
     """Return True if the extension is .pyc, False if .py
@@ -1764,30 +1764,6 @@ class Keepalive(Setting):
         """
 
 
-class LimitRequestLine(Setting):
-    name = "limit_request_line"
-    section = "Security"
-    cli = ["--limit-request-line"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 4094
-    desc = """\
-        The maximum size of HTTP request line in bytes.
-
-        This parameter is used to limit the allowed size of a client's
-        HTTP request-line. Since the request-line consists of the HTTP
-        method, URI, and protocol version, this directive places a
-        restriction on the length of a request-URI allowed for a request
-        on the server. A server needs this value to be large enough to
-        hold any of its resource names, including any information that
-        might be passed in the query part of a GET request. Value is a number
-        from 0 (unlimited) to 8190.
-
-        This parameter can be used to prevent any DDOS attack.
-        """
-
-
 class LimitRequestFields(Setting):
     name = "limit_request_fields"
     section = "Security"
@@ -1924,7 +1900,7 @@ class Env(Setting):
         """
 
 
-class Pidfile(Setting):
+class PidfileSetting(Setting):
     name = "pidfile"
     section = "Server Mechanics"
     cli = ["-p", "--pid"]
@@ -2977,17 +2953,6 @@ class ChunkMissingTerminator(IOError):
         return "Invalid chunk terminator is not '\\r\\n': %r" % self.term
 
 
-class LimitRequestLine(ParseException):
-    def __init__(self, size, max_size):
-        self.size = size
-        self.max_size = max_size
-
-    def __str__(self):
-        return "Request Line is too large (%s > %s)" % (
-            self.size, self.max_size
-        )
-
-
 class LimitRequestHeaders(ParseException):
     def __init__(self, msg):
         self.msg = msg
@@ -3472,14 +3437,6 @@ class Request(Message):
         self.query = None
         self.fragment = None
 
-        # get max request line size
-        self.limit_request_line = cfg.limit_request_line
-        if (
-            self.limit_request_line < 0 or
-            self.limit_request_line >= MAX_REQUEST_LINE
-        ):
-            self.limit_request_line = MAX_REQUEST_LINE
-
         self.req_number = req_number
         self.proxy_protocol_info = None
         super(Request, self).__init__(cfg, unreader)
@@ -3497,14 +3454,14 @@ class Request(Message):
         self.get_data(unreader, buf, stop=True)
 
         # get request line
-        line, rbuf = self.read_line(unreader, buf, self.limit_request_line)
+        line, rbuf = self.read_line(unreader, buf)
 
         # proxy protocol
         if self.proxy_protocol(bytes_to_str(line)):
             # get next request line
             buf = io.BytesIO()
             buf.write(rbuf)
-            line, rbuf = self.read_line(unreader, buf, self.limit_request_line)
+            line, rbuf = self.read_line(unreader, buf)
 
         self.parse_request_line(bytes_to_str(line))
         buf = io.BytesIO()
@@ -3537,18 +3494,14 @@ class Request(Message):
         buf = io.BytesIO()
         return ret
 
-    def read_line(self, unreader, buf, limit=0):
+    def read_line(self, unreader, buf):
         data = buf.getvalue()
 
         while True:
             idx = data.find(b"\r\n")
             if idx >= 0:
                 # check if the request line is too large
-                if idx > limit > 0:
-                    raise LimitRequestLine(idx, limit)
                 break
-            elif len(data) - 2 > limit > 0:
-                raise LimitRequestLine(len(data), limit)
             self.get_data(unreader, buf)
             data = buf.getvalue()
 
@@ -4246,7 +4199,7 @@ class Worker:
                 os.environ[k] = v
 
         set_owner_process(self.cfg.uid, self.cfg.gid,
-                               initgroups=self.cfg.initgroups)
+                          initgroups=self.cfg.initgroups)
 
         # Reseed the random number generator
         seed()
@@ -4340,8 +4293,8 @@ class Worker:
         if isinstance(
             exc, (
                 InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
-                InvalidHeader, InvalidHeaderName, LimitRequestLine,
-                LimitRequestHeaders, InvalidProxyLine, ForbiddenProxyRequest
+                InvalidHeader, InvalidHeaderName, LimitRequestHeaders,
+                InvalidProxyLine, ForbiddenProxyRequest
             )
         ):
             status_int = 400
@@ -4357,8 +4310,6 @@ class Worker:
                 mesg = "%s" % str(exc)
                 if not req and hasattr(exc, "req"):
                     req = exc.req  # for access log
-            elif isinstance(exc, LimitRequestLine):
-                mesg = "%s" % str(exc)
             elif isinstance(exc, LimitRequestHeaders):
                 mesg = "Error parsing headers: '%s'" % str(exc)
             elif isinstance(exc, InvalidProxyLine):
@@ -4536,8 +4487,8 @@ class SyncWorker(Worker):
         try:
             self.cfg.pre_request(self, req)
             request_start = datetime.now()
-            resp, environ = create(req, client, addr,
-                                        listener.getsockname(), self.cfg)
+            resp, environ = create(req, client, addr, listener.getsockname(),
+                                   self.cfg)
             # Force the connection closed until someone shows
             # a buffering proxy that supports Keep-Alive to
             # the backend.
