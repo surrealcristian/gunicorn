@@ -2038,20 +2038,6 @@ class Loglevel(Setting):
         """
 
 
-class CaptureOutput(Setting):
-    name = "capture_output"
-    section = "Logging"
-    cli = ["--capture-output"]
-    validator = validate_bool
-    action = 'store_true'
-    default = False
-    desc = """\
-        Redirect stdout/stderr to Error log.
-
-        .. versionadded:: 19.6
-        """
-
-
 class LoggerClass(Setting):
     name = "logger_class"
     section = "Logging"
@@ -2547,15 +2533,6 @@ class Logger:
         self.error_log.setLevel(self.loglevel)
         self.access_log.setLevel(logging.INFO)
 
-        # set gunicorn.error handler
-        if self.cfg.capture_output and cfg.errorlog != "-":
-            for stream in sys.stdout, sys.stderr:
-                stream.flush()
-
-            self.logfile = open(cfg.errorlog, 'a+')
-            os.dup2(self.logfile.fileno(), sys.stdout.fileno())
-            os.dup2(self.logfile.fileno(), sys.stderr.fileno())
-
         self._set_handler(self.error_log, cfg.errorlog,
                           logging.Formatter(self.error_fmt, self.datefmt))
 
@@ -2681,17 +2658,6 @@ class Logger:
         return time.strftime('[%d/%b/%Y:%H:%M:%S %z]')
 
     def reopen_files(self):
-        if self.cfg.capture_output and self.cfg.errorlog != "-":
-            for stream in sys.stdout, sys.stderr:
-                stream.flush()
-
-            with self.lock:
-                if self.logfile is not None:
-                    self.logfile.close()
-                self.logfile = open(self.cfg.errorlog, 'a+')
-                os.dup2(self.logfile.fileno(), sys.stdout.fileno())
-                os.dup2(self.logfile.fileno(), sys.stderr.fileno())
-
         for log in loggers():
             for handler in log.handlers:
                 if isinstance(handler, logging.FileHandler):
