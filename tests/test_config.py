@@ -97,19 +97,6 @@ def test_property_access():
     pytest.raises(AttributeError, c.set, "baz", "bar")
 
 
-def test_bool_validation():
-    c = Config()
-    assert c.preload_app is False
-    c.set("preload_app", True)
-    assert c.preload_app is True
-    c.set("preload_app", "true")
-    assert c.preload_app is True
-    c.set("preload_app", "false")
-    assert c.preload_app is False
-    pytest.raises(ValueError, c.set, "preload_app", "zilch")
-    pytest.raises(TypeError, c.set, "preload_app", 4)
-
-
 def test_pos_int_validation():
     c = Config()
     assert c.workers == 1
@@ -183,9 +170,6 @@ def test_cmd_line():
     with AltArgs(["prog_name", "-w", "3"]):
         app = NoConfigApp()
         assert app.cfg.workers == 3
-    with AltArgs(["prog_name", "--preload"]):
-        app = NoConfigApp()
-        assert app.cfg.preload_app
 
 
 def test_app_config():

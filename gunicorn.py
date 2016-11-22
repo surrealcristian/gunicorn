@@ -1776,23 +1776,6 @@ class ConfigCheck(Setting):
         """
 
 
-class PreloadApp(Setting):
-    name = "preload_app"
-    section = "Server Mechanics"
-    cli = ["--preload"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-        Load application code before the worker processes are forked.
-
-        By preloading an application you can save some RAM resources as well as
-        speed up server boot times. Although, if you defer application loading
-        to each worker process, you can reload your application code easily by
-        restarting workers.
-        """
-
-
 class Sendfile(Setting):
     name = "sendfile"
     section = "Server Mechanics"
@@ -4598,9 +4581,6 @@ class Arbiter:
         if self.cfg.env:
             for k, v in self.cfg.env.items():
                 os.environ[k] = v
-
-        if self.cfg.preload_app:
-            self.app.wsgi()
 
     def start(self):
         """\
