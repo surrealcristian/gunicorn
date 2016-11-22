@@ -1902,23 +1902,6 @@ class Initgroups(Setting):
         """
 
 
-class TmpUploadDir(Setting):
-    name = "tmp_upload_dir"
-    section = "Server Mechanics"
-    meta = "DIR"
-    validator = validate_string
-    default = None
-    desc = """\
-        Directory to store temporary request data as they are read.
-
-        This may disappear in the near future.
-
-        This path should be writable by the process permissions set for
-        Gunicorn workers. If not specified, Gunicorn will choose a system
-        generated temporary directory.
-        """
-
-
 class SecureSchemeHeader(Setting):
     name = "secure_scheme_headers"
     section = "Server Mechanics"
