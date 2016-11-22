@@ -20,7 +20,6 @@ import resource
 import select
 import signal
 import socket
-import ssl
 import stat
 import sys
 import tempfile
@@ -35,7 +34,6 @@ from errno import ENOTCONN
 from logging.config import fileConfig
 from os import sendfile
 from random import randint
-from ssl import SSLError
 from urllib.parse import unquote_to_bytes, urlsplit
 
 
@@ -893,10 +891,7 @@ class TCPSocket(BaseSocket):
     FAMILY = socket.AF_INET
 
     def __str__(self):
-        if self.conf.is_ssl:
-            scheme = "https"
-        else:
-            scheme = "http"
+        scheme = "http"
 
         addr = self.sock.getsockname()
         return "%s://%s:%d" % (scheme, addr[0], addr[1])
@@ -1002,14 +997,6 @@ def create_sockets(conf, log):
 
     # get it only once
     laddr = conf.address
-
-    # check ssl config early to raise the error on startup
-    # only the certfile is needed since it can contains the keyfile
-    if conf.certfile and not os.path.exists(conf.certfile):
-        raise ValueError('certfile "%s" does not exist' % conf.certfile)
-
-    if conf.keyfile and not os.path.exists(conf.keyfile):
-        raise ValueError('keyfile "%s" does not exist' % conf.keyfile)
 
     # sockets are already bound
     if 'GUNICORN_FD' in os.environ:
@@ -1263,18 +1250,6 @@ class Config:
         if hasattr(logger_class, "install"):
             logger_class.install()
         return logger_class
-
-    @property
-    def is_ssl(self):
-        return self.certfile or self.keyfile
-
-    @property
-    def ssl_options(self):
-        opts = {}
-        for name, value in self.settings.items():
-            if value.section == 'SSL':
-                opts[name] = value.get()
-        return opts
 
     @property
     def env(self):
@@ -2597,100 +2572,6 @@ class ProxyAllowFrom(Setting):
         """
 
 
-class KeyFile(Setting):
-    name = "keyfile"
-    section = "SSL"
-    cli = ["--keyfile"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-    SSL key file
-    """
-
-
-class CertFile(Setting):
-    name = "certfile"
-    section = "SSL"
-    cli = ["--certfile"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-    SSL certificate file
-    """
-
-
-class SSLVersion(Setting):
-    name = "ssl_version"
-    section = "SSL"
-    cli = ["--ssl-version"]
-    validator = validate_pos_int
-    default = ssl.PROTOCOL_TLSv1
-    desc = """\
-    SSL version to use (see stdlib ssl module's)
-    """
-
-
-class CertReqs(Setting):
-    name = "cert_reqs"
-    section = "SSL"
-    cli = ["--cert-reqs"]
-    validator = validate_pos_int
-    default = ssl.CERT_NONE
-    desc = """\
-    Whether client certificate is required (see stdlib ssl module's)
-    """
-
-
-class CACerts(Setting):
-    name = "ca_certs"
-    section = "SSL"
-    cli = ["--ca-certs"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-    CA certificates file
-    """
-
-
-class SuppressRaggedEOFs(Setting):
-    name = "suppress_ragged_eofs"
-    section = "SSL"
-    cli = ["--suppress-ragged-eofs"]
-    action = "store_true"
-    default = True
-    validator = validate_bool
-    desc = """\
-    Suppress ragged EOFs (see stdlib ssl module's)
-    """
-
-
-class DoHandshakeOnConnect(Setting):
-    name = "do_handshake_on_connect"
-    section = "SSL"
-    cli = ["--do-handshake-on-connect"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-    Whether to perform SSL handshake on socket connect (see stdlib ssl
-    module's)
-    """
-
-
-class Ciphers(Setting):
-    name = "ciphers"
-    section = "SSL"
-    cli = ["--ciphers"]
-    validator = validate_string
-    default = 'TLSv1'
-    desc = """\
-    Ciphers to use (see stdlib ssl module's)
-    """
-
-
 ###############################################################################
 # glogging.py
 ###############################################################################
@@ -3943,7 +3824,7 @@ def create(req, sock, client, server, cfg):
 
     # default variables
     host = None
-    url_scheme = "https" if cfg.is_ssl else "http"
+    url_scheme = "http"
     script_name = os.environ.get("SCRIPT_NAME", "")
 
     # set secure_headers
@@ -4190,7 +4071,7 @@ class Response:
         return self.cfg.sendfile is not False and sendfile is not None
 
     def sendfile(self, respiter):
-        if self.cfg.is_ssl or not self.can_sendfile():
+        if not self.can_sendfile():
             return False
 
         if not has_fileno(respiter.filelike):
@@ -4460,8 +4341,7 @@ class Worker:
             exc, (
                 InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
                 InvalidHeader, InvalidHeaderName, LimitRequestLine,
-                LimitRequestHeaders, InvalidProxyLine, ForbiddenProxyRequest,
-                SSLError
+                LimitRequestHeaders, InvalidProxyLine, ForbiddenProxyRequest
             )
         ):
             status_int = 400
@@ -4486,10 +4366,6 @@ class Worker:
             elif isinstance(exc, ForbiddenProxyRequest):
                 reason = "Forbidden"
                 mesg = "Request forbidden"
-                status_int = 403
-            elif isinstance(exc, SSLError):
-                reason = "Forbidden"
-                mesg = "'%s'" % str(exc)
                 status_int = 403
 
             msg = "Invalid request from ip={ip}: {error}"
@@ -4634,10 +4510,6 @@ class SyncWorker(Worker):
     def handle(self, listener, client, addr):
         req = None
         try:
-            if self.cfg.is_ssl:
-                client = ssl.wrap_socket(client, server_side=True,
-                                         **self.cfg.ssl_options)
-
             parser = RequestParser(self.cfg, client)
             req = next(parser)
             self.handle_request(listener, req, client, addr)
@@ -4645,13 +4517,6 @@ class SyncWorker(Worker):
             self.log.debug("Ignored premature client disconnection. %s", e)
         except StopIteration as e:
             self.log.debug("Closing connection. %s", e)
-        except ssl.SSLError as e:
-            if e.args[0] == ssl.SSL_ERROR_EOF:
-                self.log.debug("ssl connection closed")
-                client.close()
-            else:
-                self.log.debug("Error processing SSL request.")
-                self.handle_error(req, client, addr, e)
         except EnvironmentError as e:
             if e.errno not in (errno.EPIPE, errno.ECONNRESET):
                 self.log.exception("Socket error processing request.")
@@ -5546,24 +5411,6 @@ class Application(BaseApplication):
 
 class WSGIApplication(Application):
     def init(self, parser, opts, args):
-        if opts.paste and opts.paste is not None:
-            app_name = 'main'
-            path = opts.paste
-            if '#' in path:
-                path, app_name = path.split('#')
-            path = os.path.abspath(os.path.normpath(
-                os.path.join(getcwd(), path)))
-
-            if not os.path.exists(path):
-                raise ConfigError("%r not found" % path)
-
-            # paste application, load the config
-            self.cfgurl = 'config:%s#%s' % (path, app_name)
-            self.relpath = os.path.dirname(path)
-
-            from .pasterapp import paste_config
-            return paste_config(self.cfg, self.cfgurl, self.relpath)
-
         if len(args) < 1:
             parser.error("No application module specified.")
 
@@ -5584,18 +5431,8 @@ class WSGIApplication(Application):
         # load the app
         return import_app(self.app_uri)
 
-    def load_pasteapp(self):
-        self.chdir()
-
-        # load the paste app
-        from .pasterapp import load_pasteapp
-        return load_pasteapp(self.cfgurl, self.relpath, global_conf=self.cfg.paste_global_conf)
-
     def load(self):
-        if self.cfg.paste is not None:
-            return self.load_pasteapp()
-        else:
-            return self.load_wsgiapp()
+        return self.load_wsgiapp()
 
 
 def run():
