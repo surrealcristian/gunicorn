@@ -1764,44 +1764,6 @@ class Keepalive(Setting):
         """
 
 
-class LimitRequestFields(Setting):
-    name = "limit_request_fields"
-    section = "Security"
-    cli = ["--limit-request-fields"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 100
-    desc = """\
-        Limit the number of HTTP headers fields in a request.
-
-        This parameter is used to limit the number of headers in a request to
-        prevent DDOS attack. Used with the *limit_request_field_size* it allows
-        more safety. By default this value is 100 and can't be larger than
-        32768.
-        """
-
-
-class LimitRequestFieldSize(Setting):
-    name = "limit_request_field_size"
-    section = "Security"
-    cli = ["--limit-request-field_size"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 8190
-    desc = """\
-        Limit the allowed size of an HTTP request header field.
-
-        Value is a positive number or 0. Setting it to 0 will allow unlimited
-        header field sizes.
-
-        .. warning::
-           Setting this parameter to a very high or unlimited value can open
-           up for DDOS attacks.
-        """
-
-
 class ConfigCheck(Setting):
     name = "check_config"
     section = "Debugging"
@@ -2953,14 +2915,6 @@ class ChunkMissingTerminator(IOError):
         return "Invalid chunk terminator is not '\\r\\n': %r" % self.term
 
 
-class LimitRequestHeaders(ParseException):
-    def __init__(self, msg):
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
-
-
 class InvalidProxyLine(ParseException):
     def __init__(self, line):
         self.line = line
@@ -3329,22 +3283,6 @@ class Message:
         self.trailers = []
         self.body = None
 
-        # set headers limits
-        self.limit_request_fields = cfg.limit_request_fields
-        if (
-            self.limit_request_fields <= 0 or
-            self.limit_request_fields > MAX_HEADERS
-        ):
-            self.limit_request_fields = MAX_HEADERS
-        self.limit_request_field_size = cfg.limit_request_field_size
-        if self.limit_request_field_size < 0:
-            self.limit_request_field_size = DEFAULT_MAX_HEADERFIELD_SIZE
-
-        # set max header buffer size
-        max_header_field_size = self.limit_request_field_size or DEFAULT_MAX_HEADERFIELD_SIZE  # noqa
-        self.max_buffer_headers = self.limit_request_fields * \
-            (max_header_field_size + 2) + 4
-
         unused = self.parse(self.unreader)
         self.unreader.unread(unused)
         self.set_body_reader()
@@ -3361,9 +3299,6 @@ class Message:
         # Parse headers into key/value pairs paying attention
         # to continuation lines.
         while len(lines):
-            if len(headers) >= self.limit_request_fields:
-                raise LimitRequestHeaders("limit request headers fields")
-
             # Parse initial header name : value pair.
             curr = lines.pop(0)
             header_length = len(curr)
@@ -3380,14 +3315,8 @@ class Message:
             while len(lines) and lines[0].startswith((" ", "\t")):
                 curr = lines.pop(0)
                 header_length += len(curr)
-                if header_length > self.limit_request_field_size > 0:
-                    raise LimitRequestHeaders("limit request headers " +
-                                              "fields size")
                 value.append(curr)
             value = ''.join(value).rstrip()
-
-            if header_length > self.limit_request_field_size > 0:
-                raise LimitRequestHeaders("limit request headers fields size")
             headers.append((name, value))
         return headers
 
@@ -3479,8 +3408,6 @@ class Request(Message):
             if idx < 0 and not done:
                 self.get_data(unreader, buf)
                 data = buf.getvalue()
-                if len(data) > self.max_buffer_headers:
-                    raise LimitRequestHeaders("max buffer headers")
             else:
                 break
 
@@ -4293,8 +4220,8 @@ class Worker:
         if isinstance(
             exc, (
                 InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
-                InvalidHeader, InvalidHeaderName, LimitRequestHeaders,
-                InvalidProxyLine, ForbiddenProxyRequest
+                InvalidHeader, InvalidHeaderName, InvalidProxyLine,
+                ForbiddenProxyRequest
             )
         ):
             status_int = 400
@@ -4310,8 +4237,6 @@ class Worker:
                 mesg = "%s" % str(exc)
                 if not req and hasattr(exc, "req"):
                     req = exc.req  # for access log
-            elif isinstance(exc, LimitRequestHeaders):
-                mesg = "Error parsing headers: '%s'" % str(exc)
             elif isinstance(exc, InvalidProxyLine):
                 mesg = "'%s'" % str(exc)
             elif isinstance(exc, ForbiddenProxyRequest):
