@@ -1833,20 +1833,6 @@ class PidfileSetting(Setting):
         """
 
 
-class WorkerTmpDir(Setting):
-    name = "worker_tmp_dir"
-    section = "Server Mechanics"
-    cli = ["--worker-tmp-dir"]
-    meta = "DIR"
-    validator = validate_string
-    default = None
-    desc = """\
-        A directory to use for the worker heartbeat temporary file.
-
-        If not set, the default temporary directory will be used.
-        """
-
-
 class User(Setting):
     name = "user"
     section = "Server Mechanics"
@@ -3975,12 +3961,7 @@ class WorkerTmp:
 
     def __init__(self, cfg):
         old_umask = os.umask(cfg.umask)
-        fdir = cfg.worker_tmp_dir
-        if fdir and not os.path.isdir(fdir):
-            raise RuntimeError(
-                "%s doesn't exist. Can't create workertmp." % fdir
-            )
-        fd, name = tempfile.mkstemp(prefix="wgunicorn-", dir=fdir)
+        fd, name = tempfile.mkstemp(prefix="wgunicorn-")
 
         # allows the process to write to the file
         chown(name, cfg.uid, cfg.gid)
