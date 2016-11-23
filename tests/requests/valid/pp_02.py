@@ -1,7 +1,7 @@
 from gunicorn import Config
 
 cfg = Config()
-cfg.set("proxy_protocol", True)
+cfg.proxy_protocol = True
 
 req1 = {
     "method": "GET",

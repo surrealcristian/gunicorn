@@ -2,17 +2,14 @@ import argparse
 import base64
 import binascii
 import cgi
-import copy
 import email.utils
 import errno
 import fcntl
-import grp
 import inspect
 import io
 import logging
 import os
 import pkg_resources
-import platform
 import pwd
 import random
 import re
@@ -27,38 +24,610 @@ import threading
 import textwrap
 import time
 import traceback
-import warnings
 
 from datetime import datetime
 from errno import ENOTCONN
+from importlib import import_module
 from logging.config import fileConfig
-from os import sendfile
+from os import closerange, sendfile
 from random import randint
 from urllib.parse import unquote_to_bytes, urlsplit
 
 
-###############################################################################
-# __init__.py
-###############################################################################
-
 version_info = (19, 6, 0)
 __version__ = ".".join([str(v) for v in version_info])
 SERVER_SOFTWARE = "gunicorn/%s" % __version__
-
-
-###############################################################################
-# workers/__init__.py
-###############################################################################
-
-# supported gunicorn workers.
 SUPPORTED_WORKERS = {
     "sync": "gunicorn.SyncWorker",
 }
 
 
-###############################################################################
+def getcwd():
+    # get current path, try to use PWD env first
+    try:
+        a = os.stat(os.environ['PWD'])
+        b = os.stat(os.getcwd())
+        if a.st_ino == b.st_ino and a.st_dev == b.st_dev:
+            cwd = os.environ['PWD']
+        else:
+            cwd = os.getcwd()
+    except:
+        cwd = os.getcwd()
+    return cwd
+
+
+def pre_request_fn(worker, req):
+    worker.log.debug("%s %s" % (req.method, req.path))
+
+
+class Config:
+    def __init__(self):
+        # settings
+
+        """
+        The Gunicorn config file.
+
+        A string of the form ``PATH``, ``file:PATH``, or
+        ``python:MODULE_NAME``.
+
+        Only has an effect when specified on the command line or as part of an
+        application specific configuration.
+        """
+        self.config = None
+
+        """
+        The socket to bind.
+
+        A string of the form: ``HOST``, ``HOST:PORT``, ``unix:PATH``. An IP is
+        a valid ``HOST``.
+
+        Multiple addresses can be bound. ex.::
+
+            $ gunicorn -b 127.0.0.1:8000 -b [::1]:8000 test:app
+
+        will bind the `test:app` application on localhost both on ipv6
+        and ipv4 interfaces.
+        """
+        self.bind = ['127.0.0.1:8000']
+
+        """
+        The maximum number of pending connections.
+
+        This refers to the number of clients that can be waiting to be served.
+        Exceeding this number results in the client getting an error when
+        attempting to connect. It should only affect servers under significant
+        load.
+
+        Must be a positive integer. Generally set in the 64-2048 range.
+        """
+        self.backlog = 2048
+
+        """
+        The number of worker processes for handling requests.
+
+        A positive integer generally in the ``2-4 x $(NUM_CORES)`` range.
+        You'll want to vary this a bit to find the best for your particular
+        application's work load.
+
+        By default, the value of the ``WEB_CONCURRENCY`` environment variable.
+        If it is not defined, the default is ``1``.
+        """
+        self.workers = int(os.environ.get("WEB_CONCURRENCY", 1))
+
+        self.worker_class_str = 'sync'
+
+        """
+        The maximum number of requests a worker will process before restarting.
+
+        Any value greater than zero will limit the number of requests a work
+        will process before automatically restarting. This is a simple method
+        to help limit the damage of memory leaks.
+
+        If this is set to zero (the default) then the automatic worker
+        restarts are disabled.
+        """
+        self.max_requests = 0
+
+        """
+        The maximum jitter to add to the *max_requests* setting.
+
+        The jitter causes the restart per worker to be randomized by
+        ``randint(0, max_requests_jitter)``. This is intended to stagger worker
+        restarts to avoid all workers restarting at the same time.
+        """
+        self.max_requests_jitter = 0
+
+        """
+        Workers silent for more than this many seconds are killed and
+        restarted.
+
+        Generally set to thirty seconds. Only set this noticeably higher if
+        you're sure of the repercussions for sync workers. For the non sync
+        workers it just means that the worker process is still communicating
+        and is not tied to the length of time required to handle a single
+        request.
+        """
+        self.timeout = 30
+
+        """
+        Timeout for graceful workers restart.
+
+        After receiving a restart signal, workers have this much time to finish
+        serving requests. Workers still alive after the timeout (starting from
+        the receipt of the restart signal) are force killed.
+        """
+        self.graceful_timeout = 30
+
+        """
+        The number of seconds to wait for requests on a Keep-Alive connection.
+
+        Generally set in the 1-5 seconds range.
+        """
+        self.keepalive = 2
+
+        """
+        Check the configuration.
+        """
+        self.check_config = False
+
+        """
+        Chdir to specified directory before apps loading.
+        """
+        self.chdir = getcwd()
+
+        """
+        Daemonize the Gunicorn process.
+
+        Detaches the server from the controlling terminal and enters the
+        background.
+        """
+        self.daemon = False
+
+        """
+        Set environment variable (key=value).
+
+        Pass variables to the execution environment. Ex.::
+
+            $ gunicorn -b 127.0.0.1:8000 --env FOO=1 test:app
+
+        and test for the foo variable environment in your application.
+        """
+        self.raw_env = []
+
+        """
+        A filename to use for the PID file.
+
+        If not set, no PID file will be written.
+        """
+        self.pidfile = None
+
+        """
+        Switch worker processes to run as this user.
+
+        A valid user id (as an integer) or the name of a user that can be
+        retrieved with a call to ``pwd.getpwnam(value)`` or ``None`` to not
+        change the worker process user.
+        """
+        self.user = os.geteuid()
+
+        """
+        Switch worker process to run as this group.
+
+        A valid group id (as an integer) or the name of a user that can be
+        retrieved with a call to ``pwd.getgrnam(value)`` or ``None`` to not
+        change the worker processes group.
+        """
+        self.group = os.getegid()
+
+        """
+        A bit mask for the file mode on files written by Gunicorn.
+
+        Note that this affects unix socket permissions.
+
+        A valid value for the ``os.umask(mode)`` call or a string compatible
+        with ``int(value, 0)`` (``0`` means Python guesses the base, so values
+        like ``0``, ``0xFF``, ``0022`` are valid for decimal, hex, and octal
+        representations)
+        """
+        self.umask = 0
+
+        """
+        If true, set the worker process's group access list with all of the
+        groups of which the specified username is a member, plus the specified
+        group id.
+        """
+        self.initgroups = False
+
+        """
+        A dictionary containing headers and values that the front-end proxy
+        uses to indicate HTTPS requests. These tell Gunicorn to set
+        ``wsgi.url_scheme`` to ``https``, so your application can tell that the
+        request is secure.
+
+        The dictionary should map upper-case header names to exact string
+        values. The value comparisons are case-sensitive, unlike the header
+        names, so make sure they're exactly what your front-end proxy sends
+        when handling HTTPS requests.
+
+        It is important that your front-end proxy configuration ensures that
+        the headers defined here can not be passed directly from the client.
+        """
+        self.secure_scheme_headers = {
+            "X-FORWARDED-PROTOCOL": "ssl",
+            "X-FORWARDED-PROTO": "https",
+            "X-FORWARDED-SSL": "on"
+        }
+
+        """
+        Front-end's IPs from which allowed to handle set secure headers.
+        (comma separate).
+
+        Set to ``*`` to disable checking of Front-end IPs (useful for setups
+        where you don't know in advance the IP address of Front-end, but
+        you still trust the environment).
+
+        By default, the value of the ``FORWARDED_ALLOW_IPS`` environment
+        variable. If it is not defined, the default is ``"127.0.0.1"``.
+        """
+        self.forwarded_allow_ips = ['127.0.0.1']
+
+        """
+        The Access log file to write to.
+
+        ``'-'`` means log to stdout.
+        """
+        self.accesslog = None
+
+        """
+        The access log format.
+
+        ===========  ===========
+        Identifier   Description
+        ===========  ===========
+        h            remote address
+        l            ``'-'``
+        u            user name
+        t            date of the request
+        r            status line (e.g. ``GET / HTTP/1.1``)
+        m            request method
+        U            URL path without query string
+        q            query string
+        H            protocol
+        s            status
+        B            response length
+        b            response length or ``'-'`` (CLF format)
+        f            referer
+        a            user agent
+        T            request time in seconds
+        D            request time in microseconds
+        L            request time in decimal seconds
+        p            process ID
+        {Header}i    request header
+        {Header}o    response header
+        {Variable}e  environment variable
+        ===========  ===========
+        """
+        self.access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"',  # noqa
+
+        """
+        The Error log file to write to.
+
+        Using ``'-'`` for FILE makes gunicorn log to stderr.
+
+        .. versionchanged:: 19.2
+            Log to stderr by default.
+
+        """
+        self.errorlog = '-'
+
+        """
+        The granularity of Error log outputs.
+
+        Valid level names are:
+
+        * debug
+        * info
+        * warning
+        * error
+        * critical
+        """
+        self.loglevel = 'info'
+
+        """
+        The logger you want to use to log events in Gunicorn.
+
+        The default class (``gunicorn.Logger``) handle most of
+        normal usages in logging. It provides error and access logging.
+
+        You can provide your own worker by giving Gunicorn a
+        Python path to a subclass like ``gunicorn.Logger``.
+        Alternatively the syntax can also load the Logger class
+        with ``egg:gunicorn#simple``.
+        """
+        self.logger_class_str = 'gunicorn.Logger'
+
+        """
+        The log config file to use.
+        Gunicorn uses the standard Python logging module's Configuration
+        file format.
+        """
+        self.logconfig = None
+
+        """
+        Enable stdio inheritance.
+
+        Enable inheritance for stdio file descriptors in daemon mode.
+
+        Note: To disable the Python stdout buffering, you can to set the user
+        environment variable ``PYTHONUNBUFFERED`` .
+        """
+        self.enable_stdio_inheritance = False
+
+        """
+        A base to use with setproctitle for process naming.
+
+        This affects things like ``ps`` and ``top``. If you're going to be
+        running more than one instance of Gunicorn you'll probably want to set
+        a name to tell them apart. This requires that you install the
+        setproctitle module.
+
+        If not set, the *default_proc_name* setting will be used.
+        """
+        self.proc_name_internal = None
+
+        """
+        Internal setting that is adjusted for each type of application.
+        """
+        self.default_proc_name = 'gunicorn'
+
+        """
+        A comma-separated list of directories to add to the Python path.
+
+        e.g.
+        ``'/home/djangoprojects/myproject,/home/python/mylibrary'``.
+        """
+        self.pythonpath = None
+
+        """
+        Enable detect PROXY protocol (PROXY mode).
+
+        Allow using HTTP and Proxy together. It may be useful for work with
+        stunnel as HTTPS frontend and Gunicorn as HTTP server.
+
+        PROXY protocol:
+        http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
+
+        Example for stunnel config::
+
+            [https]
+            protocol = proxy
+            accept  = 443
+            connect = 80
+            cert = /etc/ssl/certs/stunnel.pem
+            key = /etc/ssl/certs/stunnel.key
+        """
+        self.proxy_protocol = False
+
+        """
+        Front-end's IPs from which allowed accept proxy requests (comma
+        separate).
+
+        Set to ``*`` to disable checking of Front-end IPs (useful for setups
+        where you don't know in advance the IP address of Front-end, but
+        you still trust the environment)
+        """
+        self.proxy_allow_ips = ['127.0.0.1']
+
+        # hooks
+
+        """
+        Called just before the master process is initialized.
+
+        The callable needs to accept a single instance variable for the
+        Arbiter.
+        """
+        self.on_starting = None
+
+        """
+        Called to recycle workers during a reload via SIGHUP.
+
+        The callable needs to accept a single instance variable for the
+        Arbiter.
+        """
+        self.on_reload = None
+
+        """
+        Called just after the server is started.
+
+        The callable needs to accept a single instance variable for the
+        Arbiter.
+        """
+        self.when_ready = None
+
+        """
+        Called just before a worker is forked.
+
+        The callable needs to accept two instance variables for the Arbiter and
+        new Worker.
+        """
+        self.pre_fork = None
+
+        """
+        Called just after a worker has been forked.
+
+        The callable needs to accept two instance variables for the Arbiter and
+        new Worker.
+        """
+        self.post_fork = None
+
+        """
+        Called just after a worker has initialized the application.
+
+        The callable needs to accept one instance variable for the initialized
+        Worker.
+        """
+        self.post_worker_init = None
+
+        """
+        Called just after a worker exited on SIGINT or SIGQUIT.
+
+        The callable needs to accept one instance variable for the initialized
+        Worker.
+        """
+        self.worker_int = None
+
+        """
+        Called when a worker received the SIGABRT signal.
+
+        This call generally happens on timeout.
+
+        The callable needs to accept one instance variable for the initialized
+        Worker.
+        """
+        self.worker_abort = None
+
+        """
+        Called just before a new master process is forked.
+
+        The callable needs to accept a single instance variable for the
+        Arbiter.
+        """
+        self.pre_exec = None
+
+        """
+        Called just before a worker processes the request.
+
+        The callable needs to accept two instance variables for the Worker and
+        the Request.
+        """
+        self.pre_request = pre_request_fn
+
+        """
+        Called after a worker processes the request.
+
+        The callable needs to accept two instance variables for the Worker and
+        the Request.
+        """
+        self.post_request = None
+
+        """
+        Called just after a worker has been exited.
+
+        The callable needs to accept two instance variables for the Arbiter and
+        the just-exited Worker.
+        """
+        self.worker_exit = None
+
+        """
+        Called just after *num_workers* has been changed.
+
+        The callable needs to accept an instance variable of the Arbiter and
+        two integers of number of workers after and before change.
+
+        If the number of workers is set for the first time, *old_value* would
+        be ``None``.
+        """
+        self.nworkers_changed = None
+
+        """
+        Called just before exiting Gunicorn.
+
+        The callable needs to accept a single instance variable for the
+        Arbiter.
+        """
+        self.on_exit = None
+
+    @property
+    def worker_class(self):
+        """
+        The type of workers to use.
+
+        The default class (``sync``) should handle most "normal" types of
+        workloads. You'll want to read :doc:`design` for information on when
+        you might want to choose one of the other worker classes.
+
+        A string referring to one of the following bundled classes:
+
+        * ``sync``
+
+        Optionally, you can provide your own worker by giving Gunicorn a
+        Python path to a subclass of ``Worker``.
+        """
+        uri = 'sync'
+        worker_class = load_class(uri)
+        if hasattr(worker_class, "setup"):
+            worker_class.setup()
+        return worker_class
+
+    @property
+    def address(self):
+        s = self.bind
+        ret = [parse_address(bytes_to_str(bind)) for bind in s]
+        return ret
+
+    @property
+    def uid(self):
+        return self.user
+
+    @property
+    def gid(self):
+        return self.group
+
+    @property
+    def proc_name(self):
+        pn = self.proc_name_internal
+        if pn is not None:
+            return pn
+        else:
+            return self.default_proc_name
+
+    @property
+    def logger_class(self):
+        uri = self.logger_class_str
+        if uri == "simple":
+            # support the default
+            uri = 'gunicorn.glogging.Logger'
+
+        logger_class = load_class(
+            uri,
+            default="gunicorn.Logger",
+            section="gunicorn.loggers")
+
+        if hasattr(logger_class, "install"):
+            logger_class.install()
+        return logger_class
+
+    @property
+    def env(self):
+        raw_env = self.raw_env
+        env = {}
+
+        if not raw_env:
+            return env
+
+        for e in raw_env:
+            s = bytes_to_str(e)
+            try:
+                k, v = s.split('=', 1)
+            except ValueError:
+                raise RuntimeError("environment setting %r invalid" % s)
+
+            env[k] = v
+
+        return env
+
+    @property
+    def sendfile(self):
+        if 'SENDFILE' in os.environ:
+            sendfile = os.environ['SENDFILE'].lower()
+            return sendfile in ['y', '1', 'yes', 'true']
+
+        return True
+
+
+###########
 # errors.py
-###############################################################################
+###########
 
 # we inherit from BaseException here to make sure to not be caucght
 # at application level
@@ -79,9 +648,9 @@ class AppImportError(Exception):
     """ Exception raised when loading an application """
 
 
-###############################################################################
+#########
 # util.py
-###############################################################################
+#########
 
 
 MAXFD = 1024
@@ -115,45 +684,6 @@ try:
 except ImportError:
     def _setproctitle(title):
         return
-
-
-try:
-    from importlib import import_module
-except ImportError:
-    def _resolve_name(name, package, level):
-        """Return the absolute name of the module to be imported."""
-        if not hasattr(package, 'rindex'):
-            raise ValueError("'package' not set to a string")
-        dot = len(package)
-        for x in range(level, 1, -1):
-            try:
-                dot = package.rindex('.', 0, dot)
-            except ValueError:
-                msg = "attempted relative import beyond top-level package"
-                raise ValueError(msg)
-        return "%s.%s" % (package[:dot], name)
-
-    def import_module(name, package=None):
-        """Import a module.
-
-The 'package' argument is required when performing a relative import. It
-specifies the package to use as the anchor point from which to resolve the
-relative import to an absolute import.
-
-"""
-        if name.startswith('.'):
-            if not package:
-                raise TypeError(
-                    "relative imports require the 'package' argument"
-                )
-            level = 0
-            for character in name:
-                if character != '.':
-                    break
-                level += 1
-            name = _resolve_name(name[level:], package, level)
-        __import__(name)
-        return sys.modules[name]
 
 
 def load_class(uri, default="gunicorn.SyncWorker",
@@ -238,44 +768,7 @@ def chown(path, uid, gid):
     os.chown(path, uid, gid)
 
 
-if sys.platform.startswith("win"):
-    def _waitfor(func, pathname, waitall=False):
-        # Peform the operation
-        func(pathname)
-        # Now setup the wait loop
-        if waitall:
-            dirname = pathname
-        else:
-            dirname, name = os.path.split(pathname)
-            dirname = dirname or '.'
-        # Check for `pathname` to be removed from the filesystem.
-        # The exponential backoff of the timeout amounts to a total
-        # of ~1 second after which the deletion is probably an error
-        # anyway.
-        # Testing on a i7@4.3GHz shows that usually only 1 iteration is
-        # required when contention occurs.
-        timeout = 0.001
-        while timeout < 1.0:
-            # Note we are only testing for the existance of the file(s) in
-            # the contents of the directory regardless of any security or
-            # access rights.  If we have made it this far, we have sufficient
-            # permissions to do that much using Python's equivalent of the
-            # Windows API FindFirstFile.
-            # Other Windows APIs can fail or give incorrect results when
-            # dealing with files that are pending deletion.
-            L = os.listdir(dirname)
-            if not (L if waitall else name in L):
-                return
-            # Increase the timeout and try again
-            time.sleep(timeout)
-            timeout *= 2
-        warnings.warn('tests may fail, delete still pending for ' + pathname,
-                      RuntimeWarning, stacklevel=4)
-
-    def _unlink(filename):
-        _waitfor(os.unlink, filename)
-else:
-    _unlink = os.unlink
+_unlink = os.unlink
 
 
 def unlink(filename):
@@ -285,16 +778,6 @@ def unlink(filename):
         # The filename need not exist.
         if error.errno not in (errno.ENOENT, errno.ENOTDIR):
             raise
-
-
-def is_ipv6(addr):
-    try:
-        socket.inet_pton(socket.AF_INET6, addr)
-    except socket.error:  # not a valid address
-        return False
-    except ValueError:  # ipv6 not supported on this platform
-        return False
-    return True
 
 
 def parse_address(netloc, default_port=8000):
@@ -308,9 +791,7 @@ def parse_address(netloc, default_port=8000):
         netloc = netloc.split("tcp://")[1]
 
     # get host
-    if '[' in netloc and ']' in netloc:
-        host = netloc.split(']')[0][1:].lower()
-    elif ':' in netloc:
+    if ':' in netloc:
         host = netloc.split(':')[0].lower()
     elif netloc == "":
         host = "0.0.0.0"
@@ -352,18 +833,6 @@ def close(sock):
         sock.close()
     except socket.error:
         pass
-
-
-try:
-    from os import closerange
-except ImportError:
-    def closerange(fd_low, fd_high):
-        # Iterate through and close all file descriptors.
-        for fd in range(fd_low, fd_high):
-            try:
-                os.close(fd)
-            except OSError:  # ERROR, fd wasn't open to begin with (ignored)
-                pass
 
 
 def write_chunk(sock, data):
@@ -456,20 +925,6 @@ def import_app(module):
     if not callable(app):
         raise AppImportError("Application object must be callable.")
     return app
-
-
-def getcwd():
-    # get current path, try to use PWD env first
-    try:
-        a = os.stat(os.environ['PWD'])
-        b = os.stat(os.getcwd())
-        if a.st_ino == b.st_ino and a.st_dev == b.st_dev:
-            cwd = os.environ['PWD']
-        else:
-            cwd = os.getcwd()
-    except:
-        cwd = os.getcwd()
-    return cwd
 
 
 def http_date(timestamp=None):
@@ -633,14 +1088,12 @@ def make_fail_app(msg):
 # functions from six.py
 
 def reraise(tp, value, tb=None):
+    """Reraise an exception."""
     if value is None:
         value = tp()
     if value.__traceback__ is not tb:
         raise value.with_traceback(tb)
     raise value
-
-
-reraise.__doc__ = """Reraise an exception."""
 
 
 def with_metaclass(meta, *bases):
@@ -654,9 +1107,9 @@ def with_metaclass(meta, *bases):
     return type.__new__(metaclass, 'temporary_class', (), {})
 
 
-###############################################################################
+############
 # _compat.py
-###############################################################################
+############
 
 def _check_if_pyc(fname):
     """Return True if the extension is .pyc, False if .py
@@ -826,9 +1279,9 @@ def wrap_error(func, *args, **kw):
         raise
 
 
-###############################################################################
+#########
 # sock.py
-###############################################################################
+#########
 
 SD_LISTEN_FDS_START = 3
 
@@ -901,15 +1354,6 @@ class TCPSocket(BaseSocket):
         return super(TCPSocket, self).set_options(sock, bound=bound)
 
 
-class TCP6Socket(TCPSocket):
-
-    FAMILY = socket.AF_INET6
-
-    def __str__(self):
-        (host, port, fl, sc) = self.sock.getsockname()
-        return "http://[%s]:%d" % (host, port)
-
-
 class UnixSocket(BaseSocket):
 
     FAMILY = socket.AF_UNIX
@@ -944,10 +1388,7 @@ class UnixSocket(BaseSocket):
 
 def _sock_type(addr):
     if isinstance(addr, tuple):
-        if is_ipv6(addr[0]):
-            sock_type = TCP6Socket
-        else:
-            sock_type = TCPSocket
+        sock_type = TCPSocket
     elif isinstance(addr, str):
         sock_type = UnixSocket
     else:
@@ -981,9 +1422,6 @@ def create_sockets(conf, log):
                 elif len(sockname) == 2 and '.' in sockname[0]:
                     listeners.append(TCPSocket("%s:%s" % sockname, conf, log,
                                                fd=fd))
-                elif len(sockname) == 4 and ':' in sockname[0]:
-                    listeners.append(TCP6Socket("[%s]:%s" % sockname[:2], conf,
-                                                log, fd=fd))
             except socket.error:
                 pass
         del os.environ['LISTEN_PID'], os.environ['LISTEN_FDS']
@@ -1047,9 +1485,9 @@ def create_sockets(conf, log):
     return listeners
 
 
-###############################################################################
+############
 # pidfile.py
-###############################################################################
+############
 
 class Pidfile:
     """\
@@ -1129,1304 +1567,11 @@ class Pidfile:
             raise
 
 
-###############################################################################
-# config.py
-###############################################################################
-
-KNOWN_SETTINGS = []
-PLATFORM = sys.platform
-
-
-def wrap_method(func):
-    def _wrapped(instance, *args, **kwargs):
-        return func(*args, **kwargs)
-    return _wrapped
-
-
-def make_settings(ignore=None):
-    settings = {}
-    ignore = ignore or ()
-    for s in KNOWN_SETTINGS:
-        setting = s()
-        if setting.name in ignore:
-            continue
-        settings[setting.name] = setting.copy()
-    return settings
-
-
-class Config:
-
-    def __init__(self, usage=None, prog=None):
-        self.settings = make_settings()
-        self.usage = usage
-        self.prog = prog or os.path.basename(sys.argv[0])
-        self.env_orig = os.environ.copy()
-
-    def __getattr__(self, name):
-        if name not in self.settings:
-            raise AttributeError("No configuration setting for: %s" % name)
-        return self.settings[name].get()
-
-    def __setattr__(self, name, value):
-        if name != "settings" and name in self.settings:
-            raise AttributeError("Invalid access!")
-        super(Config, self).__setattr__(name, value)
-
-    def set(self, name, value):
-        if name not in self.settings:
-            raise AttributeError("No configuration setting for: %s" % name)
-        self.settings[name].set(value)
-
-    def parser(self):
-        kwargs = {
-            "usage": self.usage,
-            "prog": self.prog
-        }
-        parser = argparse.ArgumentParser(**kwargs)
-        parser.add_argument(
-            "-v", "--version",
-            action="version", default=argparse.SUPPRESS,
-            version="%(prog)s (version " + __version__ + ")\n",
-            help="show program's version number and exit"
-        )
-        parser.add_argument("args", nargs="*", help=argparse.SUPPRESS)
-
-        keys = sorted(self.settings, key=self.settings.__getitem__)
-        for k in keys:
-            self.settings[k].add_option(parser)
-
-        return parser
-
-    @property
-    def worker_class_str(self):
-        uri = self.settings['worker_class'].get()
-        return uri
-
-    @property
-    def worker_class(self):
-        uri = self.settings['worker_class'].get()
-        worker_class = load_class(uri)
-        if hasattr(worker_class, "setup"):
-            worker_class.setup()
-        return worker_class
-
-    @property
-    def workers(self):
-        return self.settings['workers'].get()
-
-    @property
-    def address(self):
-        s = self.settings['bind'].get()
-        return [parse_address(bytes_to_str(bind)) for bind in s]
-
-    @property
-    def uid(self):
-        return self.settings['user'].get()
-
-    @property
-    def gid(self):
-        return self.settings['group'].get()
-
-    @property
-    def proc_name(self):
-        pn = self.settings['proc_name'].get()
-        if pn is not None:
-            return pn
-        else:
-            return self.settings['default_proc_name'].get()
-
-    @property
-    def logger_class(self):
-        uri = self.settings['logger_class'].get()
-        if uri == "simple":
-            # support the default
-            uri = LoggerClass.default
-
-        logger_class = load_class(
-            uri,
-            default="gunicorn.Logger",
-            section="gunicorn.loggers")
-
-        if hasattr(logger_class, "install"):
-            logger_class.install()
-        return logger_class
-
-    @property
-    def env(self):
-        raw_env = self.settings['raw_env'].get()
-        env = {}
-
-        if not raw_env:
-            return env
-
-        for e in raw_env:
-            s = bytes_to_str(e)
-            try:
-                k, v = s.split('=', 1)
-            except ValueError:
-                raise RuntimeError("environment setting %r invalid" % s)
-
-            env[k] = v
-
-        return env
-
-    @property
-    def sendfile(self):
-        if 'SENDFILE' in os.environ:
-            sendfile = os.environ['SENDFILE'].lower()
-            return sendfile in ['y', '1', 'yes', 'true']
-
-        return True
-
-
-class SettingMeta(type):
-    def __new__(cls, name, bases, attrs):
-        super_new = super(SettingMeta, cls).__new__
-        parents = [b for b in bases if isinstance(b, SettingMeta)]
-        if not parents:
-            return super_new(cls, name, bases, attrs)
-
-        attrs["order"] = len(KNOWN_SETTINGS)
-        attrs["validator"] = wrap_method(attrs["validator"])
-
-        new_class = super_new(cls, name, bases, attrs)
-        new_class.fmt_desc(attrs.get("desc", ""))
-        KNOWN_SETTINGS.append(new_class)
-        return new_class
-
-    def fmt_desc(cls, desc):
-        desc = textwrap.dedent(desc).strip()
-        setattr(cls, "desc", desc)
-        setattr(cls, "short", desc.splitlines()[0])
-
-
-class Setting:
-    name = None
-    value = None
-    section = None
-    cli = None
-    validator = None
-    type = None
-    meta = None
-    action = None
-    default = None
-    short = None
-    desc = None
-    nargs = None
-    const = None
-
-    def __init__(self):
-        if self.default is not None:
-            self.set(self.default)
-
-    def add_option(self, parser):
-        if not self.cli:
-            return
-        args = tuple(self.cli)
-
-        help_txt = "%s [%s]" % (self.short, self.default)
-        help_txt = help_txt.replace("%", "%%")
-
-        kwargs = {
-            "dest": self.name,
-            "action": self.action or "store",
-            "type": self.type or str,
-            "default": None,
-            "help": help_txt
-        }
-
-        if self.meta is not None:
-            kwargs['metavar'] = self.meta
-
-        if kwargs["action"] != "store":
-            kwargs.pop("type")
-
-        if self.nargs is not None:
-            kwargs["nargs"] = self.nargs
-
-        if self.const is not None:
-            kwargs["const"] = self.const
-
-        parser.add_argument(*args, **kwargs)
-
-    def copy(self):
-        return copy.copy(self)
-
-    def get(self):
-        return self.value
-
-    def set(self, val):
-        if not callable(self.validator):
-            raise TypeError('Invalid validator: %s' % self.name)
-        self.value = self.validator(val)
-
-    def __lt__(self, other):
-        return (self.section == other.section and
-                self.order < other.order)
-    __cmp__ = __lt__
-
-
-Setting = SettingMeta('Setting', (Setting,), {})
-
-
-def validate_bool(val):
-    if val is None:
-        return
-
-    if isinstance(val, bool):
-        return val
-    if not isinstance(val, str):
-        raise TypeError("Invalid type for casting: %s" % val)
-    if val.lower().strip() == "true":
-        return True
-    elif val.lower().strip() == "false":
-        return False
-    else:
-        raise ValueError("Invalid boolean: %s" % val)
-
-
-def validate_dict(val):
-    if not isinstance(val, dict):
-        raise TypeError("Value is not a dictionary: %s " % val)
-    return val
-
-
-def validate_pos_int(val):
-    if not isinstance(val, int):
-        val = int(val, 0)
-    else:
-        # Booleans are ints!
-        val = int(val)
-    if val < 0:
-        raise ValueError("Value must be positive: %s" % val)
-    return val
-
-
-def validate_string(val):
-    if val is None:
-        return None
-    if not isinstance(val, str):
-        raise TypeError("Not a string: %s" % val)
-    return val.strip()
-
-
-def validate_list_string(val):
-    if not val:
-        return []
-
-    # legacy syntax
-    if isinstance(val, str):
-        val = [val]
-
-    return [validate_string(v) for v in val]
-
-
-def validate_string_to_list(val):
-    val = validate_string(val)
-
-    if not val:
-        return []
-
-    return [v.strip() for v in val.split(",") if v]
-
-
-def validate_class(val):
-    if inspect.isfunction(val) or inspect.ismethod(val):
-        val = val()
-    if inspect.isclass(val):
-        return val
-    return validate_string(val)
-
-
-def validate_callable(arity):
-    def _validate_callable(val):
-        if isinstance(val, str):
-            try:
-                mod_name, obj_name = val.rsplit(".", 1)
-            except ValueError:
-                raise TypeError("Value '%s' is not import string. "
-                                "Format: module[.submodules...].object" % val)
-            try:
-                mod = __import__(mod_name, fromlist=[obj_name])
-                val = getattr(mod, obj_name)
-            except ImportError as e:
-                raise TypeError(str(e))
-            except AttributeError:
-                raise TypeError(
-                    "Can not load '%s' from '%s'" % (obj_name, mod_name)
-                )
-        if not callable(val):
-            raise TypeError("Value is not callable: %s" % val)
-        if arity != -1 and arity != len(inspect.getargspec(val)[0]):
-            raise TypeError("Value must have an arity of: %s" % arity)
-        return val
-    return _validate_callable
-
-
-def validate_user(val):
-    if val is None:
-        return os.geteuid()
-    if isinstance(val, int):
-        return val
-    elif val.isdigit():
-        return int(val)
-    else:
-        try:
-            return pwd.getpwnam(val).pw_uid
-        except KeyError:
-            raise ConfigError("No such user: '%s'" % val)
-
-
-def validate_group(val):
-    if val is None:
-        return os.getegid()
-
-    if isinstance(val, int):
-        return val
-    elif val.isdigit():
-        return int(val)
-    else:
-        try:
-            return grp.getgrnam(val).gr_gid
-        except KeyError:
-            raise ConfigError("No such group: '%s'" % val)
-
-
-def validate_post_request(val):
-    val = validate_callable(-1)(val)
-
-    largs = len(inspect.getargspec(val)[0])
-    if largs == 4:
-        return val
-    elif largs == 3:
-        return lambda worker, req, env, _r: val(worker, req, env)
-    elif largs == 2:
-        return lambda worker, req, _e, _r: val(worker, req)
-    else:
-        raise TypeError("Value must have an arity of: 4")
-
-
-def validate_chdir(val):
-    # valid if the value is a string
-    val = validate_string(val)
-
-    # transform relative paths
-    path = os.path.abspath(os.path.normpath(os.path.join(getcwd(), val)))
-
-    # test if the path exists
-    if not os.path.exists(path):
-        raise ConfigError("can't chdir to %r" % val)
-
-    return path
-
-
-def validate_file(val):
-    if val is None:
-        return None
-
-    # valid if the value is a string
-    val = validate_string(val)
-
-    # transform relative paths
-    path = os.path.abspath(os.path.normpath(os.path.join(getcwd(), val)))
-
-    # test if the path exists
-    if not os.path.exists(path):
-        raise ConfigError("%r not found" % val)
-
-    return path
-
-
-def validate_hostport(val):
-    val = validate_string(val)
-    if val is None:
-        return None
-    elements = val.split(":")
-    if len(elements) == 2:
-        return (elements[0], int(elements[1]))
-    else:
-        raise TypeError("Value must consist of: hostname:port")
-
-
-def get_default_config_file():
-    config_path = os.path.join(
-        os.path.abspath(os.getcwd()), 'gunicorn.conf.py'
-    )
-    if os.path.exists(config_path):
-        return config_path
-    return None
-
-
-class ConfigFile(Setting):
-    name = "config"
-    section = "Config File"
-    cli = ["-c", "--config"]
-    meta = "CONFIG"
-    validator = validate_string
-    default = None
-    desc = """\
-        The Gunicorn config file.
-
-        A string of the form ``PATH``, ``file:PATH``, or
-        ``python:MODULE_NAME``.
-
-        Only has an effect when specified on the command line or as part of an
-        application specific configuration.
-
-        .. versionchanged:: 19.4
-           Loading the config from a Python module requires the ``python:``
-           prefix.
-        """
-
-
-class Bind(Setting):
-    name = "bind"
-    action = "append"
-    section = "Server Socket"
-    cli = ["-b", "--bind"]
-    meta = "ADDRESS"
-    validator = validate_list_string
-
-    if 'PORT' in os.environ:
-        default = ['0.0.0.0:{0}'.format(os.environ.get('PORT'))]
-    else:
-        default = ['127.0.0.1:8000']
-
-    desc = """\
-        The socket to bind.
-
-        A string of the form: ``HOST``, ``HOST:PORT``, ``unix:PATH``. An IP is
-        a valid ``HOST``.
-
-        Multiple addresses can be bound. ex.::
-
-            $ gunicorn -b 127.0.0.1:8000 -b [::1]:8000 test:app
-
-        will bind the `test:app` application on localhost both on ipv6
-        and ipv4 interfaces.
-        """
-
-
-class Backlog(Setting):
-    name = "backlog"
-    section = "Server Socket"
-    cli = ["--backlog"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 2048
-    desc = """\
-        The maximum number of pending connections.
-
-        This refers to the number of clients that can be waiting to be served.
-        Exceeding this number results in the client getting an error when
-        attempting to connect. It should only affect servers under significant
-        load.
-
-        Must be a positive integer. Generally set in the 64-2048 range.
-        """
-
-
-class Workers(Setting):
-    name = "workers"
-    section = "Worker Processes"
-    cli = ["-w", "--workers"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = int(os.environ.get("WEB_CONCURRENCY", 1))
-    desc = """\
-        The number of worker processes for handling requests.
-
-        A positive integer generally in the ``2-4 x $(NUM_CORES)`` range.
-        You'll want to vary this a bit to find the best for your particular
-        application's work load.
-
-        By default, the value of the ``WEB_CONCURRENCY`` environment variable.
-        If it is not defined, the default is ``1``.
-        """
-
-
-class WorkerClass(Setting):
-    name = "worker_class"
-    section = "Worker Processes"
-    cli = ["-k", "--worker-class"]
-    meta = "STRING"
-    validator = validate_class
-    default = "sync"
-    desc = """\
-        The type of workers to use.
-
-        The default class (``sync``) should handle most "normal" types of
-        workloads. You'll want to read :doc:`design` for information on when
-        you might want to choose one of the other worker classes.
-
-        A string referring to one of the following bundled classes:
-
-        * ``sync``
-
-        Optionally, you can provide your own worker by giving Gunicorn a
-        Python path to a subclass of ``Worker``.
-        """
-
-
-class MaxRequests(Setting):
-    name = "max_requests"
-    section = "Worker Processes"
-    cli = ["--max-requests"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 0
-    desc = """\
-        The maximum number of requests a worker will process before restarting.
-
-        Any value greater than zero will limit the number of requests a work
-        will process before automatically restarting. This is a simple method
-        to help limit the damage of memory leaks.
-
-        If this is set to zero (the default) then the automatic worker
-        restarts are disabled.
-        """
-
-
-class MaxRequestsJitter(Setting):
-    name = "max_requests_jitter"
-    section = "Worker Processes"
-    cli = ["--max-requests-jitter"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 0
-    desc = """\
-        The maximum jitter to add to the *max_requests* setting.
-
-        The jitter causes the restart per worker to be randomized by
-        ``randint(0, max_requests_jitter)``. This is intended to stagger worker
-        restarts to avoid all workers restarting at the same time.
-
-        .. versionadded:: 19.2
-        """
-
-
-class Timeout(Setting):
-    name = "timeout"
-    section = "Worker Processes"
-    cli = ["-t", "--timeout"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 30
-    desc = """\
-        Workers silent for more than this many seconds are killed and
-        restarted.
-
-        Generally set to thirty seconds. Only set this noticeably higher if
-        you're sure of the repercussions for sync workers. For the non sync
-        workers it just means that the worker process is still communicating
-        and is not tied to the length of time required to handle a single
-        request.
-        """
-
-
-class GracefulTimeout(Setting):
-    name = "graceful_timeout"
-    section = "Worker Processes"
-    cli = ["--graceful-timeout"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 30
-    desc = """\
-        Timeout for graceful workers restart.
-
-        After receiving a restart signal, workers have this much time to finish
-        serving requests. Workers still alive after the timeout (starting from
-        the receipt of the restart signal) are force killed.
-        """
-
-
-class Keepalive(Setting):
-    name = "keepalive"
-    section = "Worker Processes"
-    cli = ["--keep-alive"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 2
-    desc = """\
-        The number of seconds to wait for requests on a Keep-Alive connection.
-
-        Generally set in the 1-5 seconds range.
-        """
-
-
-class ConfigCheck(Setting):
-    name = "check_config"
-    section = "Debugging"
-    cli = ["--check-config"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-        Check the configuration.
-        """
-
-
-class Chdir(Setting):
-    name = "chdir"
-    section = "Server Mechanics"
-    cli = ["--chdir"]
-    validator = validate_chdir
-    default = getcwd()
-    desc = """\
-        Chdir to specified directory before apps loading.
-        """
-
-
-class Daemon(Setting):
-    name = "daemon"
-    section = "Server Mechanics"
-    cli = ["-D", "--daemon"]
-    validator = validate_bool
-    action = "store_true"
-    default = False
-    desc = """\
-        Daemonize the Gunicorn process.
-
-        Detaches the server from the controlling terminal and enters the
-        background.
-        """
-
-
-class Env(Setting):
-    name = "raw_env"
-    action = "append"
-    section = "Server Mechanics"
-    cli = ["-e", "--env"]
-    meta = "ENV"
-    validator = validate_list_string
-    default = []
-
-    desc = """\
-        Set environment variable (key=value).
-
-        Pass variables to the execution environment. Ex.::
-
-            $ gunicorn -b 127.0.0.1:8000 --env FOO=1 test:app
-
-        and test for the foo variable environment in your application.
-        """
-
-
-class PidfileSetting(Setting):
-    name = "pidfile"
-    section = "Server Mechanics"
-    cli = ["-p", "--pid"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-        A filename to use for the PID file.
-
-        If not set, no PID file will be written.
-        """
-
-
-class User(Setting):
-    name = "user"
-    section = "Server Mechanics"
-    cli = ["-u", "--user"]
-    meta = "USER"
-    validator = validate_user
-    default = os.geteuid()
-    desc = """\
-        Switch worker processes to run as this user.
-
-        A valid user id (as an integer) or the name of a user that can be
-        retrieved with a call to ``pwd.getpwnam(value)`` or ``None`` to not
-        change the worker process user.
-        """
-
-
-class Group(Setting):
-    name = "group"
-    section = "Server Mechanics"
-    cli = ["-g", "--group"]
-    meta = "GROUP"
-    validator = validate_group
-    default = os.getegid()
-    desc = """\
-        Switch worker process to run as this group.
-
-        A valid group id (as an integer) or the name of a user that can be
-        retrieved with a call to ``pwd.getgrnam(value)`` or ``None`` to not
-        change the worker processes group.
-        """
-
-
-class Umask(Setting):
-    name = "umask"
-    section = "Server Mechanics"
-    cli = ["-m", "--umask"]
-    meta = "INT"
-    validator = validate_pos_int
-    type = int
-    default = 0
-    desc = """\
-        A bit mask for the file mode on files written by Gunicorn.
-
-        Note that this affects unix socket permissions.
-
-        A valid value for the ``os.umask(mode)`` call or a string compatible
-        with ``int(value, 0)`` (``0`` means Python guesses the base, so values
-        like ``0``, ``0xFF``, ``0022`` are valid for decimal, hex, and octal
-        representations)
-        """
-
-
-class Initgroups(Setting):
-    name = "initgroups"
-    section = "Server Mechanics"
-    cli = ["--initgroups"]
-    validator = validate_bool
-    action = 'store_true'
-    default = False
-
-    desc = """\
-        If true, set the worker process's group access list with all of the
-        groups of which the specified username is a member, plus the specified
-        group id.
-
-        .. versionadded:: 19.7
-        """
-
-
-class SecureSchemeHeader(Setting):
-    name = "secure_scheme_headers"
-    section = "Server Mechanics"
-    validator = validate_dict
-    default = {
-        "X-FORWARDED-PROTOCOL": "ssl",
-        "X-FORWARDED-PROTO": "https",
-        "X-FORWARDED-SSL": "on"
-    }
-    desc = """\
-
-        A dictionary containing headers and values that the front-end proxy
-        uses to indicate HTTPS requests. These tell Gunicorn to set
-        ``wsgi.url_scheme`` to ``https``, so your application can tell that the
-        request is secure.
-
-        The dictionary should map upper-case header names to exact string
-        values. The value comparisons are case-sensitive, unlike the header
-        names, so make sure they're exactly what your front-end proxy sends
-        when handling HTTPS requests.
-
-        It is important that your front-end proxy configuration ensures that
-        the headers defined here can not be passed directly from the client.
-        """
-
-
-class ForwardedAllowIPS(Setting):
-    name = "forwarded_allow_ips"
-    section = "Server Mechanics"
-    cli = ["--forwarded-allow-ips"]
-    meta = "STRING"
-    validator = validate_string_to_list
-    default = os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1")
-    desc = """\
-        Front-end's IPs from which allowed to handle set secure headers.
-        (comma separate).
-
-        Set to ``*`` to disable checking of Front-end IPs (useful for setups
-        where you don't know in advance the IP address of Front-end, but
-        you still trust the environment).
-
-        By default, the value of the ``FORWARDED_ALLOW_IPS`` environment
-        variable. If it is not defined, the default is ``"127.0.0.1"``.
-        """
-
-
-class AccessLog(Setting):
-    name = "accesslog"
-    section = "Logging"
-    cli = ["--access-logfile"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-        The Access log file to write to.
-
-        ``'-'`` means log to stdout.
-        """
-
-
-class AccessLogFormat(Setting):
-    name = "access_log_format"
-    section = "Logging"
-    cli = ["--access-logformat"]
-    meta = "STRING"
-    validator = validate_string
-    default = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
-    desc = """\
-        The access log format.
-
-        ===========  ===========
-        Identifier   Description
-        ===========  ===========
-        h            remote address
-        l            ``'-'``
-        u            user name
-        t            date of the request
-        r            status line (e.g. ``GET / HTTP/1.1``)
-        m            request method
-        U            URL path without query string
-        q            query string
-        H            protocol
-        s            status
-        B            response length
-        b            response length or ``'-'`` (CLF format)
-        f            referer
-        a            user agent
-        T            request time in seconds
-        D            request time in microseconds
-        L            request time in decimal seconds
-        p            process ID
-        {Header}i    request header
-        {Header}o    response header
-        {Variable}e  environment variable
-        ===========  ===========
-        """
-
-
-class ErrorLog(Setting):
-    name = "errorlog"
-    section = "Logging"
-    cli = ["--error-logfile", "--log-file"]
-    meta = "FILE"
-    validator = validate_string
-    default = '-'
-    desc = """\
-        The Error log file to write to.
-
-        Using ``'-'`` for FILE makes gunicorn log to stderr.
-
-        .. versionchanged:: 19.2
-           Log to stderr by default.
-
-        """
-
-
-class Loglevel(Setting):
-    name = "loglevel"
-    section = "Logging"
-    cli = ["--log-level"]
-    meta = "LEVEL"
-    validator = validate_string
-    default = "info"
-    desc = """\
-        The granularity of Error log outputs.
-
-        Valid level names are:
-
-        * debug
-        * info
-        * warning
-        * error
-        * critical
-        """
-
-
-class LoggerClass(Setting):
-    name = "logger_class"
-    section = "Logging"
-    cli = ["--logger-class"]
-    meta = "STRING"
-    validator = validate_class
-    default = "gunicorn.Logger"
-    desc = """\
-        The logger you want to use to log events in Gunicorn.
-
-        The default class (``gunicorn.Logger``) handle most of
-        normal usages in logging. It provides error and access logging.
-
-        You can provide your own worker by giving Gunicorn a
-        Python path to a subclass like ``gunicorn.Logger``.
-        Alternatively the syntax can also load the Logger class
-        with ``egg:gunicorn#simple``.
-        """
-
-
-class LogConfig(Setting):
-    name = "logconfig"
-    section = "Logging"
-    cli = ["--log-config"]
-    meta = "FILE"
-    validator = validate_string
-    default = None
-    desc = """\
-    The log config file to use.
-    Gunicorn uses the standard Python logging module's Configuration
-    file format.
-    """
-
-
-class EnableStdioInheritance(Setting):
-    name = "enable_stdio_inheritance"
-    section = "Logging"
-    cli = ["-R", "--enable-stdio-inheritance"]
-    validator = validate_bool
-    default = False
-    action = "store_true"
-    desc = """\
-    Enable stdio inheritance.
-
-    Enable inheritance for stdio file descriptors in daemon mode.
-
-    Note: To disable the Python stdout buffering, you can to set the user
-    environment variable ``PYTHONUNBUFFERED`` .
-    """
-
-
-class Procname(Setting):
-    name = "proc_name"
-    section = "Process Naming"
-    cli = ["-n", "--name"]
-    meta = "STRING"
-    validator = validate_string
-    default = None
-    desc = """\
-        A base to use with setproctitle for process naming.
-
-        This affects things like ``ps`` and ``top``. If you're going to be
-        running more than one instance of Gunicorn you'll probably want to set
-        a name to tell them apart. This requires that you install the
-        setproctitle module.
-
-        If not set, the *default_proc_name* setting will be used.
-        """
-
-
-class DefaultProcName(Setting):
-    name = "default_proc_name"
-    section = "Process Naming"
-    validator = validate_string
-    default = "gunicorn"
-    desc = """\
-        Internal setting that is adjusted for each type of application.
-        """
-
-
-class PythonPath(Setting):
-    name = "pythonpath"
-    section = "Server Mechanics"
-    cli = ["--pythonpath"]
-    meta = "STRING"
-    validator = validate_string
-    default = None
-    desc = """\
-        A comma-separated list of directories to add to the Python path.
-
-        e.g.
-        ``'/home/djangoprojects/myproject,/home/python/mylibrary'``.
-        """
-
-
-class OnStarting(Setting):
-    name = "on_starting"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def on_starting(server):
-        pass
-    default = staticmethod(on_starting)
-    desc = """\
-        Called just before the master process is initialized.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-
-
-class OnReload(Setting):
-    name = "on_reload"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def on_reload(server):
-        pass
-    default = staticmethod(on_reload)
-    desc = """\
-        Called to recycle workers during a reload via SIGHUP.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-
-
-class WhenReady(Setting):
-    name = "when_ready"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def when_ready(server):
-        pass
-    default = staticmethod(when_ready)
-    desc = """\
-        Called just after the server is started.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-
-
-class Prefork(Setting):
-    name = "pre_fork"
-    section = "Server Hooks"
-    validator = validate_callable(2)
-    type = callable
-
-    def pre_fork(server, worker):
-        pass
-    default = staticmethod(pre_fork)
-    desc = """\
-        Called just before a worker is forked.
-
-        The callable needs to accept two instance variables for the Arbiter and
-        new Worker.
-        """
-
-
-class Postfork(Setting):
-    name = "post_fork"
-    section = "Server Hooks"
-    validator = validate_callable(2)
-    type = callable
-
-    def post_fork(server, worker):
-        pass
-    default = staticmethod(post_fork)
-    desc = """\
-        Called just after a worker has been forked.
-
-        The callable needs to accept two instance variables for the Arbiter and
-        new Worker.
-        """
-
-
-class PostWorkerInit(Setting):
-    name = "post_worker_init"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def post_worker_init(worker):
-        pass
-
-    default = staticmethod(post_worker_init)
-    desc = """\
-        Called just after a worker has initialized the application.
-
-        The callable needs to accept one instance variable for the initialized
-        Worker.
-        """
-
-
-class WorkerInt(Setting):
-    name = "worker_int"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def worker_int(worker):
-        pass
-
-    default = staticmethod(worker_int)
-    desc = """\
-        Called just after a worker exited on SIGINT or SIGQUIT.
-
-        The callable needs to accept one instance variable for the initialized
-        Worker.
-        """
-
-
-class WorkerAbort(Setting):
-    name = "worker_abort"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def worker_abort(worker):
-        pass
-
-    default = staticmethod(worker_abort)
-    desc = """\
-        Called when a worker received the SIGABRT signal.
-
-        This call generally happens on timeout.
-
-        The callable needs to accept one instance variable for the initialized
-        Worker.
-        """
-
-
-class PreExec(Setting):
-    name = "pre_exec"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-    type = callable
-
-    def pre_exec(server):
-        pass
-    default = staticmethod(pre_exec)
-    desc = """\
-        Called just before a new master process is forked.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-
-
-class PreRequest(Setting):
-    name = "pre_request"
-    section = "Server Hooks"
-    validator = validate_callable(2)
-    type = callable
-
-    def pre_request(worker, req):
-        worker.log.debug("%s %s" % (req.method, req.path))
-    default = staticmethod(pre_request)
-    desc = """\
-        Called just before a worker processes the request.
-
-        The callable needs to accept two instance variables for the Worker and
-        the Request.
-        """
-
-
-class PostRequest(Setting):
-    name = "post_request"
-    section = "Server Hooks"
-    validator = validate_post_request
-    type = callable
-
-    def post_request(worker, req, environ, resp):
-        pass
-    default = staticmethod(post_request)
-    desc = """\
-        Called after a worker processes the request.
-
-        The callable needs to accept two instance variables for the Worker and
-        the Request.
-        """
-
-
-class WorkerExit(Setting):
-    name = "worker_exit"
-    section = "Server Hooks"
-    validator = validate_callable(2)
-    type = callable
-
-    def worker_exit(server, worker):
-        pass
-    default = staticmethod(worker_exit)
-    desc = """\
-        Called just after a worker has been exited.
-
-        The callable needs to accept two instance variables for the Arbiter and
-        the just-exited Worker.
-        """
-
-
-class NumWorkersChanged(Setting):
-    name = "nworkers_changed"
-    section = "Server Hooks"
-    validator = validate_callable(3)
-    type = callable
-
-    def nworkers_changed(server, new_value, old_value):
-        pass
-    default = staticmethod(nworkers_changed)
-    desc = """\
-        Called just after *num_workers* has been changed.
-
-        The callable needs to accept an instance variable of the Arbiter and
-        two integers of number of workers after and before change.
-
-        If the number of workers is set for the first time, *old_value* would
-        be ``None``.
-        """
-
-
-class OnExit(Setting):
-    name = "on_exit"
-    section = "Server Hooks"
-    validator = validate_callable(1)
-
-    def on_exit(server):
-        pass
-
-    default = staticmethod(on_exit)
-    desc = """\
-        Called just before exiting Gunicorn.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-
-
-class ProxyProtocol(Setting):
-    name = "proxy_protocol"
-    section = "Server Mechanics"
-    cli = ["--proxy-protocol"]
-    validator = validate_bool
-    default = False
-    action = "store_true"
-    desc = """\
-        Enable detect PROXY protocol (PROXY mode).
-
-        Allow using HTTP and Proxy together. It may be useful for work with
-        stunnel as HTTPS frontend and Gunicorn as HTTP server.
-
-        PROXY protocol:
-        http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
-
-        Example for stunnel config::
-
-            [https]
-            protocol = proxy
-            accept  = 443
-            connect = 80
-            cert = /etc/ssl/certs/stunnel.pem
-            key = /etc/ssl/certs/stunnel.key
-        """
-
-
-class ProxyAllowFrom(Setting):
-    name = "proxy_allow_ips"
-    section = "Server Mechanics"
-    cli = ["--proxy-allow-from"]
-    validator = validate_string_to_list
-    default = "127.0.0.1"
-    desc = """\
-        Front-end's IPs from which allowed accept proxy requests (comma
-        separate).
-
-        Set to ``*`` to disable checking of Front-end IPs (useful for setups
-        where you don't know in advance the IP address of Front-end, but
-        you still trust the environment)
-        """
-
-
-###############################################################################
+#############
 # glogging.py
-###############################################################################
+#############
 
-CONFIG_DEFAULTS = dict(
+LOGGER_CONFIG_DEFAULTS = dict(
         version=1,
         disable_existing_loggers=False,
 
@@ -2545,7 +1690,7 @@ class Logger:
 
         if cfg.logconfig:
             if os.path.exists(cfg.logconfig):
-                defaults = CONFIG_DEFAULTS.copy()
+                defaults = LOGGER_CONFIG_DEFAULTS.copy()
                 defaults['__file__'] = cfg.logconfig
                 defaults['here'] = os.path.dirname(cfg.logconfig)
                 fileConfig(cfg.logconfig, defaults=defaults,
@@ -2733,9 +1878,9 @@ class Logger:
         return user
 
 
-###############################################################################
+################
 # http/errors.py
-###############################################################################
+################
 
 class ParseException(Exception):
     pass
@@ -2825,9 +1970,9 @@ class ForbiddenProxyRequest(ParseException):
         return "Proxy request from %r not allowed" % self.host
 
 
-###############################################################################
+##############
 # http/body.py
-###############################################################################
+##############
 
 class ChunkedReader:
     def __init__(self, req, unreader):
@@ -3080,16 +2225,13 @@ class Body:
         return ret
 
 
-###############################################################################
+##################
 # http/unreader.py
-###############################################################################
+##################
 
 class Unreader:
     def __init__(self):
         self.buf = io.BytesIO()
-
-    def chunk(self):
-        raise NotImplementedError()
 
     def read(self, size=None):
         if size is not None and not isinstance(size, int):
@@ -3153,9 +2295,9 @@ class IterUnreader(Unreader):
             return b""
 
 
-###############################################################################
+#################
 # http/message.py
-###############################################################################
+#################
 
 MAX_REQUEST_LINE = 8190
 MAX_HEADERS = 32768
@@ -3178,9 +2320,6 @@ class Message:
         unused = self.parse(self.unreader)
         self.unreader.unread(unused)
         self.set_body_reader()
-
-    def parse(self):
-        raise NotImplementedError()
 
     def parse_headers(self, data):
         headers = []
@@ -3447,9 +2586,9 @@ class Request(Message):
             self.body = Body(LengthReader(self.unreader, 0))
 
 
-###############################################################################
+################
 # http/parser.py
-###############################################################################
+################
 
 class Parser:
 
@@ -3495,9 +2634,9 @@ class RequestParser(Parser):
     mesg_class = Request
 
 
-###############################################################################
+##############
 # http/wsgi.py
-###############################################################################
+##############
 
 # Send files in at most 1GB blocks as some operating systems can have problems
 # with sending files in blocks over 2GB.
@@ -3898,12 +3037,9 @@ class Response:
             write_chunk(self.sock, b"")
 
 
-###############################################################################
+######################
 # workers/workertmp.py
-###############################################################################
-
-PLATFORM = platform.system()
-IS_CYGWIN = PLATFORM.startswith('CYGWIN')
+######################
 
 
 class WorkerTmp:
@@ -3918,8 +3054,7 @@ class WorkerTmp:
 
         # unlink the file so we don't leak tempory files
         try:
-            if not IS_CYGWIN:
-                unlink(name)
+            unlink(name)
             self._tmp = os.fdopen(fd, 'w+b', 1)
         except:
             os.close(fd)
@@ -3941,15 +3076,16 @@ class WorkerTmp:
         return self._tmp.close()
 
 
-###############################################################################
+#################
 # workers/base.py
-###############################################################################
+#################
 
 class Worker:
 
     SIGNALS = [
-        getattr(signal, "SIG%s" % x)
-        for x in "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()
+        signal.SIGABRT, signal.SIGHUP, signal.SIGQUIT, signal.SIGINT,
+        signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2, signal.SIGWINCH,
+        signal.SIGCHLD,
     ]
 
     PIPE = []
@@ -3991,14 +3127,6 @@ class Worker:
         """
         self.tmp.notify()
 
-    def run(self):
-        """\
-        This is the mainloop of a worker process. You should override
-        this method in a subclass to provide the intended behaviour
-        for your particular evil schemes.
-        """
-        raise NotImplementedError()
-
     def init_process(self):
         """\
         If you override this method in a subclass, the last statement
@@ -4036,7 +3164,8 @@ class Worker:
 
         self.load_wsgi()
 
-        self.cfg.post_worker_init(self)
+        if self.cfg.post_worker_init:
+            self.cfg.post_worker_init(self)
 
         # Enter main run loop
         self.booted = True
@@ -4091,14 +3220,19 @@ class Worker:
 
     def handle_quit(self, sig, frame):
         self.alive = False
-        # worker_int callback
-        self.cfg.worker_int(self)
+
+        if self.cfg.worker_int:
+            self.cfg.worker_int(self)
+
         time.sleep(0.1)
         sys.exit(0)
 
     def handle_abort(self, sig, frame):
         self.alive = False
-        self.cfg.worker_abort(self)
+
+        if self.cfg.worker_abort:
+            self.cfg.worker_abort(self)
+
         sys.exit(1)
 
     def handle_error(self, req, client, addr, exc):
@@ -4160,9 +3294,9 @@ class Worker:
         self.log.debug("worker: SIGWINCH ignored.")
 
 
-###############################################################################
+#################
 # workers/sync.py
-###############################################################################
+#################
 
 class StopWaiting(Exception):
     """ exception raised to stop waiting for a connnection """
@@ -4297,7 +3431,9 @@ class SyncWorker(Worker):
         environ = {}
         resp = None
         try:
-            self.cfg.pre_request(self, req)
+            if self.cfg.pre_request:
+                self.cfg.pre_request(self, req)
+
             request_start = datetime.now()
             resp, environ = create(req, client, addr, listener.getsockname(),
                                    self.cfg)
@@ -4339,14 +3475,15 @@ class SyncWorker(Worker):
             raise
         finally:
             try:
-                self.cfg.post_request(self, req, environ, resp)
+                if self.cfg.post_request:
+                    self.cfg.post_request(self, req, environ, resp)
             except Exception:
                 self.log.exception("Exception in post_request hook")
 
 
-###############################################################################
+############
 # arbiter.py
-###############################################################################
+############
 
 class Arbiter:
     """
@@ -4372,53 +3509,25 @@ class Arbiter:
     SIG_QUEUE = []
 
     SIGNALS = [
-        signal.SIGHUP,
-        signal.SIGQUIT,
-        signal.SIGINT,
-        signal.SIGTERM,
-        signal.SIGTTIN,
-        signal.SIGTTOU,
-        signal.SIGUSR1,
-        signal.SIGUSR2,
+        signal.SIGHUP, signal.SIGQUIT, signal.SIGINT, signal.SIGTERM,
+        signal.SIGTTIN, signal.SIGTTOU, signal.SIGUSR1, signal.SIGUSR2,
         signal.SIGWINCH,
     ]
 
     SIG_NAMES = {
-        signal.SIGABRT: 'abrt',
-        signal.SIGALRM: 'alrm',
-        signal.SIGBUS: 'bus',
-        signal.SIGCHLD: 'chld',
-        signal.SIGCLD: 'cld',
-        signal.SIGCONT: 'cont',
-        signal.SIGFPE: 'fpe',
-        signal.SIGHUP: 'hup',
-        signal.SIGILL: 'ill',
-        signal.SIGINT: 'int',
-        signal.SIGIO: 'io',
-        signal.SIGIOT: 'iot',
-        signal.SIGKILL: 'kill',
-        signal.SIGPIPE: 'pipe',
-        signal.SIGPOLL: 'poll',
-        signal.SIGPROF: 'prof',
-        signal.SIGPWR: 'pwr',
-        signal.SIGQUIT: 'quit',
-        signal.SIGRTMAX: 'rtmax',
-        signal.SIGRTMIN: 'rtmin',
-        signal.SIGSEGV: 'segv',
-        signal.SIGSTOP: 'stop',
-        signal.SIGSYS: 'sys',
-        signal.SIGTERM: 'term',
-        signal.SIGTRAP: 'trap',
-        signal.SIGTSTP: 'tstp',
-        signal.SIGTTIN: 'ttin',
-        signal.SIGTTOU: 'ttou',
-        signal.SIGURG: 'urg',
-        signal.SIGUSR1: 'usr1',
-        signal.SIGUSR2: 'usr2',
-        signal.SIGVTALRM: 'vtalrm',
-        signal.SIGWINCH: 'winch',
-        signal.SIGXCPU: 'xcpu',
-        signal.SIGXFSZ: 'xfsz',
+        signal.SIGABRT: 'abrt', signal.SIGALRM: 'alrm', signal.SIGBUS: 'bus',
+        signal.SIGCHLD: 'chld', signal.SIGCLD: 'cld', signal.SIGCONT: 'cont',
+        signal.SIGFPE: 'fpe', signal.SIGHUP: 'hup', signal.SIGILL: 'ill',
+        signal.SIGINT: 'int', signal.SIGIO: 'io', signal.SIGIOT: 'iot',
+        signal.SIGKILL: 'kill', signal.SIGPIPE: 'pipe', signal.SIGPOLL: 'poll',
+        signal.SIGPROF: 'prof', signal.SIGPWR: 'pwr', signal.SIGQUIT: 'quit',
+        signal.SIGRTMAX: 'rtmax', signal.SIGRTMIN: 'rtmin',
+        signal.SIGSEGV: 'segv', signal.SIGSTOP: 'stop', signal.SIGSYS: 'sys',
+        signal.SIGTERM: 'term', signal.SIGTRAP: 'trap', signal.SIGTSTP: 'tstp',
+        signal.SIGTTIN: 'ttin', signal.SIGTTOU: 'ttou', signal.SIGURG: 'urg',
+        signal.SIGUSR1: 'usr1', signal.SIGUSR2: 'usr2',
+        signal.SIGVTALRM: 'vtalrm', signal.SIGWINCH: 'winch',
+        signal.SIGXCPU: 'xcpu', signal.SIGXFSZ: 'xfsz',
     }
 
     def __init__(self, app):
@@ -4454,7 +3563,10 @@ class Arbiter:
     def _set_num_workers(self, value):
         old_value = self._num_workers
         self._num_workers = value
-        self.cfg.nworkers_changed(self, value, old_value)
+
+        if self.cfg.nworkers_changed:
+            self.cfg.nworkers_changed(self, value, old_value)
+
     num_workers = property(_get_num_workers, _set_num_workers)
 
     def setup(self, app):
@@ -4474,12 +3586,7 @@ class Arbiter:
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
 
-        self.log.debug('Current configuration:\n{0}'.format(
-            '\n'.join(
-                '  {0}: {1}'.format(config, value.value)
-                for config, value
-                in sorted(self.cfg.settings.items(),
-                          key=lambda setting: setting[1]))))
+        self.log.debug('Current configuration:\n{0}'.format('TODO'))  # TODO
 
         # set enviroment' variables
         if self.cfg.env:
@@ -4504,7 +3611,9 @@ class Arbiter:
                 pidname += ".2"
             self.pidfile = Pidfile(pidname)
             self.pidfile.create(self.pid)
-        self.cfg.on_starting(self)
+
+        if self.cfg.on_starting:
+            self.cfg.on_starting(self)
 
         self.init_signals()
         if not self.LISTENERS:
@@ -4519,7 +3628,8 @@ class Arbiter:
         if hasattr(self.worker_class, "check_config"):
             self.worker_class.check_config(self.cfg, self.log)
 
-        self.cfg.when_ready(self)
+        if self.cfg.when_ready:
+            self.cfg.when_ready(self)
 
     def init_signals(self):
         """\
@@ -4701,7 +3811,10 @@ class Arbiter:
             self.log.info("Reason: %s", reason)
         if self.pidfile is not None:
             self.pidfile.unlink()
-        self.cfg.on_exit(self)
+
+        if self.cfg.on_exit:
+            self.cfg.on_exit(self)
+
         sys.exit(exit_status)
 
     def sleep(self):
@@ -4766,7 +3879,8 @@ class Arbiter:
         if self.reexec_pid != 0:
             return
 
-        self.cfg.pre_exec(self)
+        if self.cfg.pre_exec:
+            self.cfg.pre_exec(self)
 
         environ = self.cfg.env_orig.copy()
         fds = [l.fileno() for l in self.LISTENERS]
@@ -4811,7 +3925,8 @@ class Arbiter:
             self.log.info("Listening at: %s", listeners_str)
 
         # do some actions on reload
-        self.cfg.on_reload(self)
+        if self.cfg.on_reload:
+            self.cfg.on_reload(self)
 
         # unlink pidfile
         if self.pidfile is not None:
@@ -4909,7 +4024,10 @@ class Arbiter:
         worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS,
                                    self.app, self.timeout / 2.0,
                                    self.cfg, self.log)
-        self.cfg.pre_fork(self, worker)
+
+        if self.cfg.pre_fork:
+            self.cfg.pre_fork(self, worker)
+
         pid = os.fork()
         if pid != 0:
             self.WORKERS[pid] = worker
@@ -4920,7 +4038,10 @@ class Arbiter:
         try:
             _setproctitle("worker [%s]" % self.proc_name)
             self.log.info("Booting worker with pid: %s", worker_pid)
-            self.cfg.post_fork(self, worker)
+
+            if self.cfg.post_fork:
+                self.cfg.post_fork(self, worker)
+
             worker.init_process()
             sys.exit(0)
         except SystemExit:
@@ -4940,7 +4061,9 @@ class Arbiter:
             self.log.info("Worker exiting (pid: %s)", worker_pid)
             try:
                 worker.tmp.close()
-                self.cfg.worker_exit(self, worker)
+
+                if self.cfg.worker_exit:
+                    self.cfg.worker_exit(self, worker)
             except:
                 self.log.warning(
                     "Exception during worker exit:\n%s", traceback.format_exc()
@@ -4981,16 +4104,19 @@ class Arbiter:
                 try:
                     worker = self.WORKERS.pop(pid)
                     worker.tmp.close()
-                    self.cfg.worker_exit(self, worker)
+
+                    if self.cfg.worker_exit:
+                        self.cfg.worker_exit(self, worker)
+
                     return
                 except (KeyError, OSError):
                     return
             raise
 
 
-###############################################################################
+#####################
 # gunicorn/wsgiapp.py
-###############################################################################
+#####################
 
 class BaseApplication:
     """
@@ -4999,7 +4125,7 @@ class BaseApplication:
     """
     def __init__(self, usage=None, prog=None):
         self.usage = usage
-        self.cfg = None
+        self.cfg = Config()
         self.callable = None
         self.prog = prog
         self.logger = None
@@ -5010,31 +4136,11 @@ class BaseApplication:
         Loads the configuration
         """
         try:
-            self.load_default_config()
             self.load_config()
         except Exception as e:
             print("\nError: %s" % str(e), file=sys.stderr)
             sys.stderr.flush()
             sys.exit(1)
-
-    def load_default_config(self):
-        # init configuration
-        self.cfg = Config(self.usage, prog=self.prog)
-
-    def init(self, parser, opts, args):
-        raise NotImplementedError
-
-    def load(self):
-        raise NotImplementedError
-
-    def load_config(self):
-        """
-        This method is used to load the configuration from one or several
-        input(s).
-        Custom Command line, configuration file.
-        You have to override this method in your class.
-        """
-        raise NotImplementedError
 
     def reload(self):
         self.do_load_config()
@@ -5055,93 +4161,25 @@ class BaseApplication:
 
 class Application(BaseApplication):
 
-    def get_config_from_filename(self, filename):
-
-        if not os.path.exists(filename):
-            raise RuntimeError("%r doesn't exist" % filename)
-
-        cfg = {
-            "__builtins__": __builtins__,
-            "__name__": "__config__",
-            "__file__": filename,
-            "__doc__": None,
-            "__package__": None
-        }
-        try:
-            execfile_(filename, cfg, cfg)
-        except Exception:
-            print("Failed to read config file: %s" % filename, file=sys.stderr)
-            traceback.print_exc()
-            sys.stderr.flush()
-            sys.exit(1)
-
-        return cfg
-
-    def get_config_from_module_name(self, module_name):
-        return import_module(module_name).__dict__
-
-    def load_config_from_module_name_or_filename(self, location):
-        """
-        Loads the configuration file: the file is a python file, otherwise
-        raise an RuntimeError
-        Exception or stop the process if the configuration file contains a
-        syntax error.
-        """
-
-        if location.startswith("python:"):
-            module_name = location[len("python:"):]
-            cfg = self.get_config_from_module_name(module_name)
-        else:
-            if location.startswith("file:"):
-                filename = location[len("file:"):]
-            else:
-                filename = location
-            cfg = self.get_config_from_filename(filename)
-
-        for k, v in cfg.items():
-            # Ignore unknown names
-            if k not in self.cfg.settings:
-                continue
-            try:
-                self.cfg.set(k.lower(), v)
-            except:
-                print("Invalid value for %s: %s\n" % (k, v), file=sys.stderr)
-                sys.stderr.flush()
-                raise
-
-        return cfg
-
-    def load_config_from_file(self, filename):
-        return self.load_config_from_module_name_or_filename(location=filename)
-
     def load_config(self):
+        kwargs = {
+            "usage": self.usage,
+            "prog": self.prog
+        }
+        parser = argparse.ArgumentParser(**kwargs)
+        parser.add_argument(
+            "-v", "--version",
+            action="version", default=argparse.SUPPRESS,
+            version="%(prog)s (version " + __version__ + ")\n",
+            help="show program's version number and exit"
+        )
+        parser.add_argument("args", nargs="*", help=argparse.SUPPRESS)
+
         # parse console args
-        parser = self.cfg.parser()
         args = parser.parse_args()
 
         # optional settings from apps
-        cfg = self.init(parser, args, args.args)
-
-        # Load up the any app specific configuration
-        if cfg and cfg is not None:
-            for k, v in cfg.items():
-                self.cfg.set(k.lower(), v)
-
-        if args.config:
-            self.load_config_from_file(args.config)
-        else:
-            default_config = get_default_config_file()
-            if default_config is not None:
-                self.load_config_from_file(default_config)
-
-        # Lastly, update the configuration with any command line
-        # settings.
-        for k, v in args.__dict__.items():
-            if v is None:
-                continue
-            if k == "args":
-                continue
-            self.cfg.set(k.lower(), v)
+        self.init(parser, args, args.args)
 
     def run(self):
         if self.cfg.check_config:
@@ -5174,7 +4212,7 @@ class WSGIApplication(Application):
         if len(args) < 1:
             parser.error("No application module specified.")
 
-        self.cfg.set("default_proc_name", args[0])
+        self.cfg.default_proc_name = args[0]
         self.app_uri = args[0]
 
     def chdir(self):
@@ -5196,10 +4234,6 @@ class WSGIApplication(Application):
 
 
 def run():
-    """\
-    The ``gunicorn`` command line runner for launching Gunicorn with
-    generic WSGI applications.
-    """
     WSGIApplication("%(prog)s [OPTIONS] [APP_MODULE]").run()
 
 
