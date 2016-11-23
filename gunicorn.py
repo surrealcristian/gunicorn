@@ -42,20 +42,6 @@ SUPPORTED_WORKERS = {
 }
 
 
-def getcwd():
-    # get current path, try to use PWD env first
-    try:
-        a = os.stat(os.environ['PWD'])
-        b = os.stat(os.getcwd())
-        if a.st_ino == b.st_ino and a.st_dev == b.st_dev:
-            cwd = os.environ['PWD']
-        else:
-            cwd = os.getcwd()
-    except:
-        cwd = os.getcwd()
-    return cwd
-
-
 def pre_request_fn(worker, req):
     worker.log.debug("%s %s" % (req.method, req.path))
 
@@ -684,6 +670,20 @@ try:
 except ImportError:
     def _setproctitle(title):
         return
+
+
+def getcwd():
+    # get current path, try to use PWD env first
+    try:
+        a = os.stat(os.environ['PWD'])
+        b = os.stat(os.getcwd())
+        if a.st_ino == b.st_ino and a.st_dev == b.st_dev:
+            cwd = os.environ['PWD']
+        else:
+            cwd = os.getcwd()
+    except:
+        cwd = os.getcwd()
+    return cwd
 
 
 def load_class(uri, default="gunicorn.SyncWorker",
