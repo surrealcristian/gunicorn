@@ -42,6 +42,11 @@ SUPPORTED_WORKERS = {
 }
 
 
+##########
+# Config
+##########
+
+
 def pre_request_fn(worker, req):
     worker.log.debug("%s %s" % (req.method, req.path))
 
@@ -611,9 +616,9 @@ class Config:
         return True
 
 
-###########
-# errors.py
-###########
+##########
+# Errors
+##########
 
 # we inherit from BaseException here to make sure to not be caucght
 # at application level
@@ -634,9 +639,9 @@ class AppImportError(Exception):
     """ Exception raised when loading an application """
 
 
-#########
-# util.py
-#########
+########
+# Util
+########
 
 
 MAXFD = 1024
@@ -1107,10 +1112,6 @@ def with_metaclass(meta, *bases):
     return type.__new__(metaclass, 'temporary_class', (), {})
 
 
-############
-# _compat.py
-############
-
 def _check_if_pyc(fname):
     """Return True if the extension is .pyc, False if .py
     and None if otherwise"""
@@ -1279,9 +1280,9 @@ def wrap_error(func, *args, **kw):
         raise
 
 
-#########
-# sock.py
-#########
+########
+# Sock
+########
 
 SD_LISTEN_FDS_START = 3
 
@@ -1485,9 +1486,9 @@ def create_sockets(conf, log):
     return listeners
 
 
-############
-# pidfile.py
-############
+###########
+# Pidfile
+###########
 
 class Pidfile:
     """\
@@ -1567,9 +1568,9 @@ class Pidfile:
             raise
 
 
-#############
-# glogging.py
-#############
+###########
+# Logging
+###########
 
 LOGGER_CONFIG_DEFAULTS = dict(
         version=1,
@@ -1878,9 +1879,9 @@ class Logger:
         return user
 
 
-################
-# http/errors.py
-################
+########
+# HTTP
+########
 
 class ParseException(Exception):
     pass
@@ -1969,10 +1970,6 @@ class ForbiddenProxyRequest(ParseException):
     def __str__(self):
         return "Proxy request from %r not allowed" % self.host
 
-
-##############
-# http/body.py
-##############
 
 class ChunkedReader:
     def __init__(self, req, unreader):
@@ -2225,10 +2222,6 @@ class Body:
         return ret
 
 
-##################
-# http/unreader.py
-##################
-
 class Unreader:
     def __init__(self):
         self.buf = io.BytesIO()
@@ -2294,10 +2287,6 @@ class IterUnreader(Unreader):
             self.iter = None
             return b""
 
-
-#################
-# http/message.py
-#################
 
 MAX_REQUEST_LINE = 8190
 MAX_HEADERS = 32768
@@ -2586,10 +2575,6 @@ class Request(Message):
             self.body = Body(LengthReader(self.unreader, 0))
 
 
-################
-# http/parser.py
-################
-
 class Parser:
 
     mesg_class = None
@@ -2634,9 +2619,9 @@ class RequestParser(Parser):
     mesg_class = Request
 
 
-##############
-# http/wsgi.py
-##############
+########
+# WSGI
+########
 
 # Send files in at most 1GB blocks as some operating systems can have problems
 # with sending files in blocks over 2GB.
@@ -3037,9 +3022,9 @@ class Response:
             write_chunk(self.sock, b"")
 
 
-######################
-# workers/workertmp.py
-######################
+##########
+# Worker
+##########
 
 
 class WorkerTmp:
@@ -3075,10 +3060,6 @@ class WorkerTmp:
     def close(self):
         return self._tmp.close()
 
-
-#################
-# workers/base.py
-#################
 
 class Worker:
 
@@ -3294,10 +3275,6 @@ class Worker:
         self.log.debug("worker: SIGWINCH ignored.")
 
 
-#################
-# workers/sync.py
-#################
-
 class StopWaiting(Exception):
     """ exception raised to stop waiting for a connnection """
 
@@ -3481,9 +3458,9 @@ class SyncWorker(Worker):
                 self.log.exception("Exception in post_request hook")
 
 
-############
-# arbiter.py
-############
+###########
+# Arbiter
+###########
 
 class Arbiter:
     """
@@ -4114,9 +4091,9 @@ class Arbiter:
             raise
 
 
-#####################
-# gunicorn/wsgiapp.py
-#####################
+###############
+# Application
+###############
 
 class BaseApplication:
     """
