@@ -47,9 +47,9 @@ class NoConfigApp(Application):
 
 def test_pos_int_validation():
     c = Config()
-    assert c.workers == 1
-    c.workers = 4
     assert c.workers == 4
+    c.workers = 2
+    assert c.workers == 2
 
 
 def test_str_validation():
