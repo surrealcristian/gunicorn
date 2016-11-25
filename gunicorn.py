@@ -59,19 +59,9 @@ class Config:
         self.config = None
 
         """
-        The socket to bind.
-
-        A string of the form: ``HOST``, ``HOST:PORT``, ``unix:PATH``. An IP is
-        a valid ``HOST``.
-
-        Multiple addresses can be bound. ex.::
-
-            $ gunicorn -b 127.0.0.1:8000 -b [::1]:8000 test:app
-
-        will bind the `test:app` application on localhost both on ipv6
-        and ipv4 interfaces.
+        The unix sockets to bind.
         """
-        self.bind = ['unix:/tmp/gunicorn.socket']
+        self.bind = ['/tmp/gunicorn.socket']
 
         """
         The maximum number of pending connections.
@@ -507,9 +497,7 @@ class Config:
 
     @property
     def address(self):
-        s = self.bind
-        ret = [parse_address(bytes_to_str(bind)) for bind in s]
-        return ret
+        return self.bind
 
     @property
     def uid(self):
@@ -673,36 +661,6 @@ def unlink(filename):
         # The filename need not exist.
         if error.errno not in (errno.ENOENT, errno.ENOTDIR):
             raise
-
-
-def parse_address(netloc, default_port=8000):
-    if netloc.startswith("unix://"):
-        return netloc.split("unix://")[1]
-
-    if netloc.startswith("unix:"):
-        return netloc.split("unix:")[1]
-
-    if netloc.startswith("tcp://"):
-        netloc = netloc.split("tcp://")[1]
-
-    # get host
-    if ':' in netloc:
-        host = netloc.split(':')[0].lower()
-    elif netloc == "":
-        host = "0.0.0.0"
-    else:
-        host = netloc.lower()
-
-    # get port
-    netloc = netloc.split(']')[-1]
-    if ":" in netloc:
-        port = netloc.split(':', 1)[1]
-        if not port.isdigit():
-            raise RuntimeError("%r is not a valid port number." % port)
-        port = int(port)
-    else:
-        port = default_port
-    return (host, port)
 
 
 def get_maxfd():
@@ -1162,21 +1120,6 @@ class BaseSocket:
         self.sock = None
 
 
-class TCPSocket(BaseSocket):
-
-    FAMILY = socket.AF_INET
-
-    def __str__(self):
-        scheme = "http"
-
-        addr = self.sock.getsockname()
-        return "%s://%s:%d" % (scheme, addr[0], addr[1])
-
-    def set_options(self, sock, bound=False):
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        return super(TCPSocket, self).set_options(sock, bound=bound)
-
-
 class UnixSocket(BaseSocket):
 
     FAMILY = socket.AF_UNIX
@@ -1210,21 +1153,15 @@ class UnixSocket(BaseSocket):
 
 
 def _sock_type(addr):
-    if isinstance(addr, tuple):
-        sock_type = TCPSocket
-    elif isinstance(addr, str):
-        sock_type = UnixSocket
-    else:
-        raise TypeError("Unable to create socket from: %r" % addr)
-    return sock_type
+    if isinstance(addr, str):
+        return UnixSocket
+    raise TypeError("Unable to create socket from: %r" % addr)
 
 
 def create_sockets(conf, log):
     """
-    Create a new socket for the given address. If the
-    address is a tuple, a TCP socket is created. If it
-    is a string, a Unix socket is created. Otherwise
-    a TypeError is raised.
+    Create a new socket for the given address. If the address is a string, a
+    Unix socket is created. Otherwise a TypeError is raised.
     """
 
     # Systemd support, use the sockets managed by systemd and passed to
@@ -1242,9 +1179,6 @@ def create_sockets(conf, log):
                 sockname = sock.getsockname()
                 if isinstance(sockname, str) and sockname.startswith('/'):
                     listeners.append(UnixSocket(sockname, conf, log, fd=fd))
-                elif len(sockname) == 2 and '.' in sockname[0]:
-                    listeners.append(TCPSocket("%s:%s" % sockname, conf, log,
-                                               fd=fd))
             except socket.error:
                 pass
         del os.environ['LISTEN_PID'], os.environ['LISTEN_FDS']
