@@ -311,15 +311,8 @@ class Config:
         running more than one instance of Gunicorn you'll probably want to set
         a name to tell them apart. This requires that you install the
         setproctitle module.
-
-        If not set, the *default_proc_name* setting will be used.
         """
-        self.proc_name_internal = None
-
-        """
-        Internal setting that is adjusted for each type of application.
-        """
-        self.default_proc_name = 'gunicorn'
+        self.proc_name = 'gunicorn'
 
         """
         A comma-separated list of directories to add to the Python path.
@@ -477,26 +470,6 @@ class Config:
         Arbiter.
         """
         self.on_exit = None
-
-    @property
-    def address(self):
-        return self.bind
-
-    @property
-    def uid(self):
-        return self.user
-
-    @property
-    def gid(self):
-        return self.group
-
-    @property
-    def proc_name(self):
-        pn = self.proc_name_internal
-        if pn is not None:
-            return pn
-        else:
-            return self.default_proc_name
 
     @property
     def sendfile(self):
@@ -1094,7 +1067,7 @@ class UnixSocket(BaseSocket):
     def bind(self, sock):
         old_umask = os.umask(self.conf.umask)
         sock.bind(self.cfg_addr)
-        chown(self.cfg_addr, self.conf.uid, self.conf.gid)
+        chown(self.cfg_addr, self.conf.user, self.conf.group)
         os.umask(old_umask)
 
     def close(self):
@@ -1141,7 +1114,7 @@ def create_sockets(conf, log):
             return listeners
 
     # get it only once
-    laddr = conf.address
+    laddr = conf.bind
 
     # sockets are already bound
     if 'GUNICORN_FD' in os.environ:
@@ -2740,7 +2713,7 @@ class WorkerTmp:
         fd, name = tempfile.mkstemp(prefix="wgunicorn-")
 
         # allows the process to write to the file
-        chown(name, cfg.uid, cfg.gid)
+        chown(name, cfg.user, cfg.group)
         os.umask(old_umask)
 
         # unlink the file so we don't leak tempory files
@@ -2822,7 +2795,7 @@ class Worker:
         loop is initiated.
         """
 
-        set_owner_process(self.cfg.uid, self.cfg.gid,
+        set_owner_process(self.cfg.user, self.cfg.group,
                           initgroups=self.cfg.initgroups)
 
         # Reseed the random number generator
@@ -3258,7 +3231,7 @@ class Arbiter:
         if 'GUNICORN_FD' in os.environ:
             self.log.reopen_files()
 
-        self.address = self.cfg.address
+        self.address = self.cfg.bind
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
         self.proc_name = self.cfg.proc_name
@@ -3560,7 +3533,7 @@ class Arbiter:
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
 
     def reload(self):
-        old_address = self.cfg.address
+        old_address = self.cfg.bind
 
         # reload conf
         self.app.reload()
@@ -3570,7 +3543,7 @@ class Arbiter:
         self.log.reopen_files()
 
         # do we need to change listener ?
-        if old_address != self.cfg.address:
+        if old_address != self.cfg.bind:
             # close all listeners
             [l.close() for l in self.LISTENERS]
             # init new listeners
@@ -3865,7 +3838,6 @@ class WSGIApplication(Application):
         if len(args) < 1:
             parser.error("No application module specified.")
 
-        self.cfg.default_proc_name = args[0]
         self.app_uri = args[0]
 
     def chdir(self):
