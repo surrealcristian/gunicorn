@@ -81,9 +81,6 @@ class Config:
         A positive integer generally in the ``2-4 x $(NUM_CORES)`` range.
         You'll want to vary this a bit to find the best for your particular
         application's work load.
-
-        By default, the value of the ``WEB_CONCURRENCY`` environment variable.
-        If it is not defined, the default is ``1``.
         """
         self.workers = 4
 
@@ -113,10 +110,7 @@ class Config:
         restarted.
 
         Generally set to thirty seconds. Only set this noticeably higher if
-        you're sure of the repercussions for sync workers. For the non sync
-        workers it just means that the worker process is still communicating
-        and is not tied to the length of time required to handle a single
-        request.
+        you're sure of the repercussions for sync workers.
         """
         self.timeout = 30
 
@@ -144,7 +138,7 @@ class Config:
         """
         Chdir to specified directory before apps loading.
         """
-        self.chdir = getcwd()
+        self.chdir = os.getcwd()
 
         """
         Daemonize the Gunicorn process.
@@ -153,17 +147,6 @@ class Config:
         background.
         """
         self.daemon = False
-
-        """
-        Set environment variable (key=value).
-
-        Pass variables to the execution environment. Ex.::
-
-            $ gunicorn -b 127.0.0.1:8000 --env FOO=1 test:app
-
-        and test for the foo variable environment in your application.
-        """
-        self.raw_env = []
 
         """
         A filename to use for the PID file.
@@ -516,25 +499,6 @@ class Config:
             return self.default_proc_name
 
     @property
-    def env(self):
-        raw_env = self.raw_env
-        env = {}
-
-        if not raw_env:
-            return env
-
-        for e in raw_env:
-            s = bytes_to_str(e)
-            try:
-                k, v = s.split('=', 1)
-            except ValueError:
-                raise RuntimeError("environment setting %r invalid" % s)
-
-            env[k] = v
-
-        return env
-
-    @property
     def sendfile(self):
         if 'SENDFILE' in os.environ:
             sendfile = os.environ['SENDFILE'].lower()
@@ -602,20 +566,6 @@ try:
 except ImportError:
     def _setproctitle(title):
         return
-
-
-def getcwd():
-    # get current path, try to use PWD env first
-    try:
-        a = os.stat(os.environ['PWD'])
-        b = os.stat(os.getcwd())
-        if a.st_ino == b.st_ino and a.st_dev == b.st_dev:
-            cwd = os.environ['PWD']
-        else:
-            cwd = os.getcwd()
-    except:
-        cwd = os.getcwd()
-    return cwd
 
 
 def get_username(uid):
@@ -2872,11 +2822,6 @@ class Worker:
         loop is initiated.
         """
 
-        # set environment' variables
-        if self.cfg.env:
-            for k, v in self.cfg.env.items():
-                os.environ[k] = v
-
         set_owner_process(self.cfg.uid, self.cfg.gid,
                           initgroups=self.cfg.initgroups)
 
@@ -3278,7 +3223,7 @@ class Arbiter:
         self.master_pid = 0
         self.master_name = "Master"
 
-        cwd = getcwd()
+        cwd = os.getcwd()
 
         args = sys.argv[:]
         args.insert(0, sys.executable)
@@ -3319,11 +3264,6 @@ class Arbiter:
         self.proc_name = self.cfg.proc_name
 
         self.log.debug('Current configuration:\n{0}'.format('TODO'))  # TODO
-
-        # set enviroment' variables
-        if self.cfg.env:
-            for k, v in self.cfg.env.items():
-                os.environ[k] = v
 
     def start(self):
         """\
@@ -3609,7 +3549,7 @@ class Arbiter:
         if self.cfg.pre_exec:
             self.cfg.pre_exec(self)
 
-        environ = self.cfg.env_orig.copy()
+        environ = os.environ.copy()
         fds = [l.fileno() for l in self.LISTENERS]
         environ['GUNICORN_FD'] = ",".join([str(fd) for fd in fds])
         environ['GUNICORN_PID'] = str(master_pid)
@@ -3621,19 +3561,6 @@ class Arbiter:
 
     def reload(self):
         old_address = self.cfg.address
-
-        # reset old environment
-        for k in self.cfg.env:
-            if k in self.cfg.env_orig:
-                # reset the key to the value it had before
-                # we launched gunicorn
-                os.environ[k] = self.cfg.env_orig[k]
-            else:
-                # delete the value set by gunicorn
-                try:
-                    del os.environ[k]
-                except KeyError:
-                    pass
 
         # reload conf
         self.app.reload()
