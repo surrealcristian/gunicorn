@@ -5,11 +5,9 @@ import cgi
 import email.utils
 import errno
 import fcntl
-import inspect
 import io
 import logging
 import os
-import pkg_resources
 import pwd
 import random
 import re
@@ -27,25 +25,19 @@ import traceback
 
 from datetime import datetime
 from errno import ENOTCONN
-from importlib import import_module
 from logging.config import fileConfig
 from os import closerange, sendfile
 from random import randint
 from urllib.parse import unquote_to_bytes, urlsplit
 
 
-version_info = (19, 6, 0)
-__version__ = ".".join([str(v) for v in version_info])
+__version__ = '19.6.0'
 SERVER_SOFTWARE = "gunicorn/%s" % __version__
-SUPPORTED_WORKERS = {
-    "sync": "gunicorn.SyncWorker",
-}
 
 
 ##########
 # Config
 ##########
-
 
 def pre_request_fn(worker, req):
     worker.log.debug("%s %s" % (req.method, req.path))
@@ -79,7 +71,7 @@ class Config:
         will bind the `test:app` application on localhost both on ipv6
         and ipv4 interfaces.
         """
-        self.bind = ['127.0.0.1:8000']
+        self.bind = ['unix:/tmp/gunicorn.socket']
 
         """
         The maximum number of pending connections.
@@ -103,9 +95,7 @@ class Config:
         By default, the value of the ``WEB_CONCURRENCY`` environment variable.
         If it is not defined, the default is ``1``.
         """
-        self.workers = int(os.environ.get("WEB_CONCURRENCY", 1))
-
-        self.worker_class_str = 'sync'
+        self.workers = 4
 
         """
         The maximum number of requests a worker will process before restarting.
@@ -322,20 +312,7 @@ class Config:
         * error
         * critical
         """
-        self.loglevel = 'info'
-
-        """
-        The logger you want to use to log events in Gunicorn.
-
-        The default class (``gunicorn.Logger``) handle most of
-        normal usages in logging. It provides error and access logging.
-
-        You can provide your own worker by giving Gunicorn a
-        Python path to a subclass like ``gunicorn.Logger``.
-        Alternatively the syntax can also load the Logger class
-        with ``egg:gunicorn#simple``.
-        """
-        self.logger_class_str = 'gunicorn.Logger'
+        self.loglevel = 'debug'
 
         """
         The log config file to use.
@@ -529,28 +506,6 @@ class Config:
         self.on_exit = None
 
     @property
-    def worker_class(self):
-        """
-        The type of workers to use.
-
-        The default class (``sync``) should handle most "normal" types of
-        workloads. You'll want to read :doc:`design` for information on when
-        you might want to choose one of the other worker classes.
-
-        A string referring to one of the following bundled classes:
-
-        * ``sync``
-
-        Optionally, you can provide your own worker by giving Gunicorn a
-        Python path to a subclass of ``Worker``.
-        """
-        uri = 'sync'
-        worker_class = load_class(uri)
-        if hasattr(worker_class, "setup"):
-            worker_class.setup()
-        return worker_class
-
-    @property
     def address(self):
         s = self.bind
         ret = [parse_address(bytes_to_str(bind)) for bind in s]
@@ -571,22 +526,6 @@ class Config:
             return pn
         else:
             return self.default_proc_name
-
-    @property
-    def logger_class(self):
-        uri = self.logger_class_str
-        if uri == "simple":
-            # support the default
-            uri = 'gunicorn.glogging.Logger'
-
-        logger_class = load_class(
-            uri,
-            default="gunicorn.Logger",
-            section="gunicorn.loggers")
-
-        if hasattr(logger_class, "install"):
-            logger_class.install()
-        return logger_class
 
     @property
     def env(self):
@@ -689,55 +628,6 @@ def getcwd():
     except:
         cwd = os.getcwd()
     return cwd
-
-
-def load_class(uri, default="gunicorn.SyncWorker",
-               section="gunicorn.workers"):
-    if inspect.isclass(uri):
-        return uri
-    if uri.startswith("egg:"):
-        # uses entry points
-        entry_str = uri.split("egg:")[1]
-        try:
-            dist, name = entry_str.rsplit("#", 1)
-        except ValueError:
-            dist = entry_str
-            name = default
-
-        try:
-            return pkg_resources.load_entry_point(dist, section, name)
-        except:
-            exc = traceback.format_exc()
-            msg = "class uri %r invalid or not found: \n\n[%s]"
-            raise RuntimeError(msg % (uri, exc))
-    else:
-        components = uri.split('.')
-        if len(components) == 1:
-            while True:
-                if uri.startswith("#"):
-                    uri = uri[1:]
-
-                if uri in SUPPORTED_WORKERS:
-                    components = SUPPORTED_WORKERS[uri].split(".")
-                    break
-
-                try:
-                    return pkg_resources.load_entry_point("gunicorn",
-                                                          section, uri)
-                except:
-                    exc = traceback.format_exc()
-                    msg = "class uri %r invalid or not found: \n\n[%s]"
-                    raise RuntimeError(msg % (uri, exc))
-
-        klass = components.pop(-1)
-
-        try:
-            mod = import_module('.'.join(components))
-        except:
-            exc = traceback.format_exc()
-            msg = "class uri %r invalid or not found: \n\n[%s]"
-            raise RuntimeError(msg % (uri, exc))
-        return getattr(mod, klass)
 
 
 def get_username(uid):
@@ -1568,9 +1458,9 @@ class Pidfile:
             raise
 
 
-###########
-# Logging
-###########
+##########
+# Logger
+##########
 
 LOGGER_CONFIG_DEFAULTS = dict(
         version=1,
@@ -3551,13 +3441,12 @@ class Arbiter:
         self.cfg = app.cfg
 
         if self.log is None:
-            self.log = self.cfg.logger_class(app.cfg)
+            self.log = Logger(app.cfg)
 
         # reopen files
         if 'GUNICORN_FD' in os.environ:
             self.log.reopen_files()
 
-        self.worker_class = self.cfg.worker_class
         self.address = self.cfg.address
         self.num_workers = self.cfg.workers
         self.timeout = self.cfg.timeout
@@ -3599,11 +3488,6 @@ class Arbiter:
         listeners_str = ",".join([str(l) for l in self.LISTENERS])
         self.log.debug("Arbiter booted")
         self.log.info("Listening at: %s (%s)", listeners_str, self.pid)
-        self.log.info("Using worker: %s", self.cfg.worker_class_str)
-
-        # check worker class requirements
-        if hasattr(self.worker_class, "check_config"):
-            self.worker_class.check_config(self.cfg, self.log)
 
         if self.cfg.when_ready:
             self.cfg.when_ready(self)
@@ -3998,9 +3882,8 @@ class Arbiter:
 
     def spawn_worker(self):
         self.worker_age += 1
-        worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS,
-                                   self.app, self.timeout / 2.0,
-                                   self.cfg, self.log)
+        worker = SyncWorker(self.worker_age, self.pid, self.LISTENERS,
+                            self.app, self.timeout / 2.0, self.cfg, self.log)
 
         if self.cfg.pre_fork:
             self.cfg.pre_fork(self, worker)

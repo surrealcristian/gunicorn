@@ -9,8 +9,6 @@ import pytest
 
 from gunicorn import Config
 from gunicorn import Application
-from gunicorn import SyncWorker
-from gunicorn import Logger
 
 
 dirname = os.path.dirname(__file__)
@@ -120,14 +118,3 @@ def test_nworkers_changed():
 
     c.nworkers_changed = nworkers_changed_3
     assert c.nworkers_changed(1, 2, 3) == 3
-
-
-class MyLogger(Logger):
-    # dummy custom logger class for testing
-    pass
-
-
-def test_always_use_configured_logger():
-    c = Config()
-    c.logger_class_str = __name__ + '.MyLogger'
-    assert c.logger_class == MyLogger
