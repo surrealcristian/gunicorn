@@ -48,17 +48,6 @@ class Config:
         # settings
 
         """
-        The Gunicorn config file.
-
-        A string of the form ``PATH``, ``file:PATH``, or
-        ``python:MODULE_NAME``.
-
-        Only has an effect when specified on the command line or as part of an
-        application specific configuration.
-        """
-        self.config = None
-
-        """
         The unix sockets to bind.
         """
         self.bind = ['/tmp/gunicorn.socket']
