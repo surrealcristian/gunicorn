@@ -226,44 +226,6 @@ class Config:
         self.forwarded_allow_ips = ['127.0.0.1']
 
         """
-        The Access log file to write to.
-
-        ``'-'`` means log to stdout.
-        """
-        self.accesslog = None
-
-        """
-        The access log format.
-
-        ===========  ===========
-        Identifier   Description
-        ===========  ===========
-        h            remote address
-        l            ``'-'``
-        u            user name
-        t            date of the request
-        r            status line (e.g. ``GET / HTTP/1.1``)
-        m            request method
-        U            URL path without query string
-        q            query string
-        H            protocol
-        s            status
-        B            response length
-        b            response length or ``'-'`` (CLF format)
-        f            referer
-        a            user agent
-        T            request time in seconds
-        D            request time in microseconds
-        L            request time in decimal seconds
-        p            process ID
-        {Header}i    request header
-        {Header}o    response header
-        {Variable}e  environment variable
-        ===========  ===========
-        """
-        self.access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"',  # noqa
-
-        """
         The Error log file to write to.
 
         Using ``'-'`` for FILE makes gunicorn log to stderr.
@@ -1263,13 +1225,6 @@ LOGGER_CONFIG_DEFAULTS = dict(
                 "propagate": True,
                 "qualname": "gunicorn.error"
             },
-
-            "gunicorn.access": {
-                "level": "INFO",
-                "handlers": ["console"],
-                "propagate": True,
-                "qualname": "gunicorn.access"
-            }
         },
         handlers={
             "console": {
@@ -1337,17 +1292,12 @@ class Logger:
     error_fmt = r"%(asctime)s [%(process)d] [%(levelname)s] %(message)s"
     datefmt = r"[%Y-%m-%d %H:%M:%S %z]"
 
-    access_fmt = "%(message)s"
-
     atoms_wrapper_class = SafeAtoms
 
     def __init__(self, cfg):
         self.error_log = logging.getLogger("gunicorn.error")
         self.error_log.propagate = False
-        self.access_log = logging.getLogger("gunicorn.access")
-        self.access_log.propagate = False
         self.error_handlers = []
-        self.access_handlers = []
         self.logfile = None
         self.lock = threading.Lock()
         self.cfg = cfg
@@ -1356,17 +1306,9 @@ class Logger:
     def setup(self, cfg):
         self.loglevel = self.LOG_LEVELS.get(cfg.loglevel.lower(), logging.INFO)
         self.error_log.setLevel(self.loglevel)
-        self.access_log.setLevel(logging.INFO)
 
         self._set_handler(self.error_log, cfg.errorlog,
                           logging.Formatter(self.error_fmt, self.datefmt))
-
-        # set gunicorn.access handler
-        if cfg.accesslog is not None:
-            self._set_handler(
-                self.access_log, cfg.accesslog,
-                fmt=logging.Formatter(self.access_fmt), stream=sys.stdout
-            )
 
         if cfg.logconfig:
             if os.path.exists(cfg.logconfig):
@@ -1457,26 +1399,6 @@ class Logger:
         )
 
         return atoms
-
-    def access(self, resp, req, environ, request_time):
-        """ See http://httpd.apache.org/docs/2.0/logs.html#combined
-        for format details
-        """
-
-        if not (self.cfg.accesslog or self.cfg.logconfig):
-            return
-
-        # wrap atoms:
-        # - make sure atoms will be test case insensitively
-        # - if atom doesn't exist replace it by '-'
-        safe_atoms = self.atoms_wrapper_class(
-            self.atoms(resp, req, environ, request_time)
-        )
-
-        try:
-            self.access_log.info(self.cfg.access_log_format % safe_atoms)
-        except:
-            self.error(traceback.format_exc())
 
     def now(self):
         """ return date in Apache Common Log Format """
@@ -2937,7 +2859,6 @@ class Worker:
             resp = Response(req, client, self.cfg)
             resp.status = "%s %s" % (status_int, reason)
             resp.response_length = len(mesg)
-            self.log.access(resp, req, environ, request_time)
 
         try:
             write_error(client, status_int, reason, mesg)
@@ -3105,7 +3026,6 @@ class SyncWorker(Worker):
                         resp.write(item)
                 resp.close()
                 request_time = datetime.now() - request_start
-                self.log.access(resp, req, environ, request_time)
             finally:
                 if hasattr(respiter, "close"):
                     respiter.close()

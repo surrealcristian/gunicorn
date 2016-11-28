@@ -55,8 +55,6 @@ def test_pos_int_validation():
 def test_str_validation():
     c = Config()
     assert c.proc_name == "gunicorn"
-    c.proc_name_internal = "foo"
-    assert c.proc_name == "foo"
 
 
 def test_str_to_list_validation():
