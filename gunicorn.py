@@ -23,7 +23,6 @@ import textwrap
 import time
 import traceback
 
-from datetime import datetime
 from errno import ENOTCONN
 from logging.config import fileConfig
 from os import closerange, sendfile
@@ -111,13 +110,6 @@ class Config:
         the receipt of the restart signal) are force killed.
         """
         self.graceful_timeout = 30
-
-        """
-        The number of seconds to wait for requests on a Keep-Alive connection.
-
-        Generally set in the 1-5 seconds range.
-        """
-        self.keepalive = 2
 
         """
         Check the configuration.
@@ -812,8 +804,6 @@ def make_fail_app(msg):
     return app
 
 
-# functions from six.py
-
 def reraise(tp, value, tb=None):
     """Reraise an exception."""
     if value is None:
@@ -821,17 +811,6 @@ def reraise(tp, value, tb=None):
     if value.__traceback__ is not tb:
         raise value.with_traceback(tb)
     raise value
-
-
-def with_metaclass(meta, *bases):
-    """Create a base class with a metaclass."""
-    # This requires a bit of explanation: the basic idea is to make a dummy
-    # metaclass for one level of class instantiation that replaces itself with
-    # the actual metaclass.
-    class metaclass(meta):
-        def __new__(cls, name, this_bases, d):
-            return meta(name, bases, d)
-    return type.__new__(metaclass, 'temporary_class', (), {})
 
 
 def bytes_to_str(b):
@@ -2802,7 +2781,6 @@ class Worker:
         sys.exit(1)
 
     def handle_error(self, req, client, addr, exc):
-        request_start = datetime.now()
         addr = addr or ('', -1)  # unix socket case
         if isinstance(
             exc, (
@@ -2841,7 +2819,6 @@ class Worker:
             mesg = ""
 
         if req is not None:
-            request_time = datetime.now() - request_start
             environ = default_environ(req, client, self.cfg)
             environ['REMOTE_ADDR'] = addr[0]
             environ['REMOTE_PORT'] = str(addr[1])
@@ -2995,7 +2972,6 @@ class SyncWorker(Worker):
             if self.cfg.pre_request:
                 self.cfg.pre_request(self, req)
 
-            request_start = datetime.now()
             resp, environ = create(req, client, addr, listener.getsockname(),
                                    self.cfg)
             # Force the connection closed until someone shows
@@ -3014,7 +2990,6 @@ class SyncWorker(Worker):
                     for item in respiter:
                         resp.write(item)
                 resp.close()
-                request_time = datetime.now() - request_start
             finally:
                 if hasattr(respiter, "close"):
                     respiter.close()
@@ -3658,11 +3633,9 @@ class BaseApplication:
     An application interface for configuring and loading
     the various necessities for any given web framework.
     """
-    def __init__(self, usage=None, prog=None):
-        self.usage = usage
+    def __init__(self):
         self.cfg = Config()
         self.callable = None
-        self.prog = prog
         self.logger = None
         self.do_load_config()
 
@@ -3697,15 +3670,11 @@ class BaseApplication:
 class Application(BaseApplication):
 
     def load_config(self):
-        kwargs = {
-            "usage": self.usage,
-            "prog": self.prog
-        }
-        parser = argparse.ArgumentParser(**kwargs)
+        parser = argparse.ArgumentParser()
         parser.add_argument(
             "-v", "--version",
             action="version", default=argparse.SUPPRESS,
-            version="%(prog)s (version " + __version__ + ")\n",
+            version=__version__ + "\n",
             help="show program's version number and exit"
         )
         parser.add_argument("args", nargs="*", help=argparse.SUPPRESS)
@@ -3714,7 +3683,7 @@ class Application(BaseApplication):
         args = parser.parse_args()
 
         # optional settings from apps
-        self.init(parser, args, args.args)
+        self.init(parser, args.args)
 
     def run(self):
         if self.cfg.check_config:
@@ -3743,7 +3712,7 @@ class Application(BaseApplication):
 
 
 class WSGIApplication(Application):
-    def init(self, parser, opts, args):
+    def init(self, parser, args):
         if len(args) < 1:
             parser.error("No application module specified.")
 
@@ -3767,9 +3736,5 @@ class WSGIApplication(Application):
         return self.load_wsgiapp()
 
 
-def run():
-    WSGIApplication("%(prog)s [OPTIONS] [APP_MODULE]").run()
-
-
 if __name__ == '__main__':
-    run()
+    WSGIApplication().run()
