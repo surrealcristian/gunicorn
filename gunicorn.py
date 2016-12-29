@@ -122,14 +122,6 @@ class Config:
         self.chdir = os.getcwd()
 
         """
-        Daemonize the Gunicorn process.
-
-        Detaches the server from the controlling terminal and enters the
-        background.
-        """
-        self.daemon = False
-
-        """
         A filename to use for the PID file.
 
         If not set, no PID file will be written.
@@ -236,16 +228,6 @@ class Config:
         file format.
         """
         self.logconfig = None
-
-        """
-        Enable stdio inheritance.
-
-        Enable inheritance for stdio file descriptors in daemon mode.
-
-        Note: To disable the Python stdout buffering, you can to set the user
-        environment variable ``PYTHONUNBUFFERED`` .
-        """
-        self.enable_stdio_inheritance = False
 
         """
         A base to use with setproctitle for process naming.
@@ -656,89 +638,6 @@ def http_date(timestamp=None):
 
 def is_hoppish(header):
     return header.lower().strip() in hop_headers
-
-
-def daemonize(enable_stdio_inheritance=False):
-    """\
-    Standard daemonization of a process.
-    http://www.svbug.com/documentation/comp.unix.programmer-FAQ/faq_2.html#SEC16
-    """
-    if 'GUNICORN_FD' not in os.environ:
-        if os.fork():
-            os._exit(0)
-        os.setsid()
-
-        if os.fork():
-            os._exit(0)
-
-        os.umask(0o22)
-
-        # In both the following any file descriptors above stdin
-        # stdout and stderr are left untouched. The inheritence
-        # option simply allows one to have output go to a file
-        # specified by way of shell redirection when not wanting
-        # to use --error-log option.
-
-        if not enable_stdio_inheritance:
-            # Remap all of stdin, stdout and stderr on to
-            # /dev/null. The expectation is that users have
-            # specified the --error-log option.
-
-            closerange(0, 3)
-
-            fd_null = os.open(REDIRECT_TO, os.O_RDWR)
-
-            if fd_null != 0:
-                os.dup2(fd_null, 0)
-
-            os.dup2(fd_null, 1)
-            os.dup2(fd_null, 2)
-
-        else:
-            fd_null = os.open(REDIRECT_TO, os.O_RDWR)
-
-            # Always redirect stdin to /dev/null as we would
-            # never expect to need to read interactive input.
-
-            if fd_null != 0:
-                os.close(0)
-                os.dup2(fd_null, 0)
-
-            # If stdout and stderr are still connected to
-            # their original file descriptors we check to see
-            # if they are associated with terminal devices.
-            # When they are we map them to /dev/null so that
-            # are still detached from any controlling terminal
-            # properly. If not we preserve them as they are.
-            #
-            # If stdin and stdout were not hooked up to the
-            # original file descriptors, then all bets are
-            # off and all we can really do is leave them as
-            # they were.
-            #
-            # This will allow 'gunicorn ... > output.log 2>&1'
-            # to work with stdout/stderr going to the file
-            # as expected.
-            #
-            # Note that if using --error-log option, the log
-            # file specified through shell redirection will
-            # only be used up until the log file specified
-            # by the option takes over. As it replaces stdout
-            # and stderr at the file descriptor level, then
-            # anything using stdout or stderr, including having
-            # cached a reference to them, will still work.
-
-            def redirect(stream, fd_expect):
-                try:
-                    fd = stream.fileno()
-                    if fd == fd_expect and stream.isatty():
-                        os.close(fd)
-                        os.dup2(fd_null, fd)
-                except AttributeError:
-                    pass
-
-            redirect(sys.stdout, 1)
-            redirect(sys.stderr, 2)
 
 
 def seed():
@@ -3293,12 +3192,7 @@ class Arbiter:
 
     def handle_winch(self):
         "SIGWINCH handling"
-        if self.cfg.daemon:
-            self.log.info("graceful stop of workers")
-            self.num_workers = 0
-            self.kill_workers(signal.SIGTERM)
-        else:
-            self.log.debug("SIGWINCH ignored. Not daemonized")
+        self.log.debug("SIGWINCH ignored. Not daemonized")
 
     def maybe_promote_master(self):
         if self.master_pid == 0:
@@ -3696,9 +3590,6 @@ class Application(BaseApplication):
                 sys.stderr.flush()
                 sys.exit(1)
             sys.exit(0)
-
-        if self.cfg.daemon:
-            daemonize(self.cfg.enable_stdio_inheritance)
 
         # set python paths
         if self.cfg.pythonpath and self.cfg.pythonpath is not None:
