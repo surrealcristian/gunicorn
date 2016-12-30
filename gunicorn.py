@@ -247,36 +247,6 @@ class Config:
         """
         self.pythonpath = None
 
-        """
-        Enable detect PROXY protocol (PROXY mode).
-
-        Allow using HTTP and Proxy together. It may be useful for work with
-        stunnel as HTTPS frontend and Gunicorn as HTTP server.
-
-        PROXY protocol:
-        http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
-
-        Example for stunnel config::
-
-            [https]
-            protocol = proxy
-            accept  = 443
-            connect = 80
-            cert = /etc/ssl/certs/stunnel.pem
-            key = /etc/ssl/certs/stunnel.key
-        """
-        self.proxy_protocol = False
-
-        """
-        Front-end's IPs from which allowed accept proxy requests (comma
-        separate).
-
-        Set to ``*`` to disable checking of Front-end IPs (useful for setups
-        where you don't know in advance the IP address of Front-end, but
-        you still trust the environment)
-        """
-        self.proxy_allow_ips = ['127.0.0.1']
-
         # hooks
 
         """
@@ -286,14 +256,6 @@ class Config:
         Arbiter.
         """
         self.on_starting = None
-
-        """
-        Called to recycle workers during a reload via SIGHUP.
-
-        The callable needs to accept a single instance variable for the
-        Arbiter.
-        """
-        self.on_reload = None
 
         """
         Called just after the server is started.
@@ -1421,24 +1383,6 @@ class ChunkMissingTerminator(IOError):
         return "Invalid chunk terminator is not '\\r\\n': %r" % self.term
 
 
-class InvalidProxyLine(ParseException):
-    def __init__(self, line):
-        self.line = line
-        self.code = 400
-
-    def __str__(self):
-        return "Invalid PROXY line: %r" % self.line
-
-
-class ForbiddenProxyRequest(ParseException):
-    def __init__(self, host):
-        self.host = host
-        self.code = 403
-
-    def __str__(self):
-        return "Proxy request from %r not allowed" % self.host
-
-
 class ChunkedReader:
     def __init__(self, req, unreader):
         self.req = req
@@ -1855,7 +1799,6 @@ class Request(Message):
         self.fragment = None
 
         self.req_number = req_number
-        self.proxy_protocol_info = None
         super(Request, self).__init__(cfg, unreader)
 
     def get_data(self, unreader, buf, stop=False):
@@ -1872,13 +1815,6 @@ class Request(Message):
 
         # get request line
         line, rbuf = self.read_line(unreader, buf)
-
-        # proxy protocol
-        if self.proxy_protocol(bytes_to_str(line)):
-            # get next request line
-            buf = io.BytesIO()
-            buf.write(rbuf)
-            line, rbuf = self.read_line(unreader, buf)
 
         self.parse_request_line(bytes_to_str(line))
         buf = io.BytesIO()
@@ -1922,85 +1858,6 @@ class Request(Message):
 
         return (data[:idx],  # request line,
                 data[idx + 2:])  # residue in the buffer, skip \r\n
-
-    def proxy_protocol(self, line):
-        """\
-        Detect, check and parse proxy protocol.
-
-        :raises: ForbiddenProxyRequest, InvalidProxyLine.
-        :return: True for proxy protocol line else False
-        """
-        if not self.cfg.proxy_protocol:
-            return False
-
-        if self.req_number != 1:
-            return False
-
-        if not line.startswith("PROXY"):
-            return False
-
-        self.proxy_protocol_access_check()
-        self.parse_proxy_protocol(line)
-
-        return True
-
-    def proxy_protocol_access_check(self):
-        # check in allow list
-        if isinstance(self.unreader, SocketUnreader):
-            try:
-                remote_host = self.unreader.sock.getpeername()[0]
-            except socket.error as e:
-                if e.args[0] == ENOTCONN:
-                    raise ForbiddenProxyRequest("UNKNOW")
-                raise
-            if ("*" not in self.cfg.proxy_allow_ips and
-                    remote_host not in self.cfg.proxy_allow_ips):
-                raise ForbiddenProxyRequest(remote_host)
-
-    def parse_proxy_protocol(self, line):
-        bits = line.split()
-
-        if len(bits) != 6:
-            raise InvalidProxyLine(line)
-
-        # Extract data
-        proto = bits[1]
-        s_addr = bits[2]
-        d_addr = bits[3]
-
-        # Validation
-        if proto not in ["TCP4", "TCP6"]:
-            raise InvalidProxyLine("protocol '%s' not supported" % proto)
-        if proto == "TCP4":
-            try:
-                socket.inet_pton(socket.AF_INET, s_addr)
-                socket.inet_pton(socket.AF_INET, d_addr)
-            except socket.error:
-                raise InvalidProxyLine(line)
-        elif proto == "TCP6":
-            try:
-                socket.inet_pton(socket.AF_INET6, s_addr)
-                socket.inet_pton(socket.AF_INET6, d_addr)
-            except socket.error:
-                raise InvalidProxyLine(line)
-
-        try:
-            s_port = int(bits[4])
-            d_port = int(bits[5])
-        except ValueError:
-            raise InvalidProxyLine("invalid port %s" % line)
-
-        if not ((0 <= s_port <= 65535) and (0 <= d_port <= 65535)):
-            raise InvalidProxyLine("invalid port %s" % line)
-
-        # Set data
-        self.proxy_protocol_info = {
-            "proxy_protocol": proto,
-            "client_addr": s_addr,
-            "client_port": s_port,
-            "proxy_addr": d_addr,
-            "proxy_port": d_port
-        }
 
     def parse_request_line(self, line):
         bits = line.split(None, 2)
@@ -2165,21 +2022,6 @@ def default_environ(req, sock, cfg):
     return env
 
 
-def proxy_environ(req):
-    info = req.proxy_protocol_info
-
-    if not info:
-        return {}
-
-    return {
-        "PROXY_PROTOCOL": info["proxy_protocol"],
-        "REMOTE_ADDR": info["client_addr"],
-        "REMOTE_PORT": str(info["client_port"]),
-        "PROXY_ADDR": info["proxy_addr"],
-        "PROXY_PORT": str(info["proxy_port"]),
-    }
-
-
 def create(req, sock, client, server, cfg):
     resp = Response(req, sock, cfg)
 
@@ -2273,9 +2115,6 @@ def create(req, sock, client, server, cfg):
     environ['PATH_INFO'] = unquote_to_wsgi_str(path_info)
     environ['SCRIPT_NAME'] = script_name
 
-    # override the environ with the correct remote and server address if
-    # we are behind a proxy using the proxy protocol.
-    environ.update(proxy_environ(req))
     return resp, environ
 
 
@@ -2684,8 +2523,7 @@ class Worker:
         if isinstance(
             exc, (
                 InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
-                InvalidHeader, InvalidHeaderName, InvalidProxyLine,
-                ForbiddenProxyRequest
+                InvalidHeader, InvalidHeaderName
             )
         ):
             status_int = 400
@@ -2701,12 +2539,6 @@ class Worker:
                 mesg = "%s" % str(exc)
                 if not req and hasattr(exc, "req"):
                     req = exc.req  # for access log
-            elif isinstance(exc, InvalidProxyLine):
-                mesg = "'%s'" % str(exc)
-            elif isinstance(exc, ForbiddenProxyRequest):
-                reason = "Forbidden"
-                mesg = "Request forbidden"
-                status_int = 403
 
             msg = "Invalid request from ip={ip}: {error}"
             self.log.debug(msg.format(ip=addr[0], error=str(exc)))
@@ -3139,7 +2971,6 @@ class Arbiter:
         - Gracefully shutdown the old worker processes
         """
         self.log.info("Hang up: %s", self.master_name)
-        self.reload()
 
     def handle_term(self):
         """SIGTERM handling"""
@@ -3309,48 +3140,6 @@ class Arbiter:
 
         # exec the process using the original environment
         os.execvpe(self.START_CTX[0], self.START_CTX['args'], environ)
-
-    def reload(self):
-        old_address = self.cfg.bind
-
-        # reload conf
-        self.app.reload()
-        self.setup(self.app)
-
-        # reopen log files
-        self.log.reopen_files()
-
-        # do we need to change listener ?
-        if old_address != self.cfg.bind:
-            # close all listeners
-            [l.close() for l in self.LISTENERS]
-            # init new listeners
-            self.LISTENERS = create_sockets(self.cfg, self.log)
-            listeners_str = ",".join([str(l) for l in self.LISTENERS])
-            self.log.info("Listening at: %s", listeners_str)
-
-        # do some actions on reload
-        if self.cfg.on_reload:
-            self.cfg.on_reload(self)
-
-        # unlink pidfile
-        if self.pidfile is not None:
-            self.pidfile.unlink()
-
-        # create new pidfile
-        if self.cfg.pidfile is not None:
-            self.pidfile = Pidfile(self.cfg.pidfile)
-            self.pidfile.create(self.pid)
-
-        # set new proc_name
-        _setproctitle("master [%s]" % self.proc_name)
-
-        # spawn new workers
-        for i in range(self.cfg.workers):
-            self.spawn_worker()
-
-        # manage workers
-        self.manage_workers()
 
     def murder_workers(self):
         """\
@@ -3543,9 +3332,6 @@ class BaseApplication:
             print("\nError: %s" % str(e), file=sys.stderr)
             sys.stderr.flush()
             sys.exit(1)
-
-    def reload(self):
-        self.do_load_config()
 
     def wsgi(self):
         if self.callable is None:
